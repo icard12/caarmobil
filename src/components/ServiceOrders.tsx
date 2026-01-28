@@ -264,7 +264,7 @@ export default function ServiceOrders() {
 
             {showForm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-2 lg:p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-lg rounded-2xl lg:rounded-3xl p-4 lg:p-5 shadow-2xl relative animate-in zoom-in-95 max-h-[98vh] overflow-y-auto custom-scrollbar">
+                    <div className="bg-white w-full max-w-[95%] sm:max-w-lg rounded-2xl lg:rounded-3xl p-4 lg:p-6 shadow-2xl relative animate-in zoom-in-95 max-h-[90vh] overflow-y-auto custom-scrollbar">
                         <button onClick={() => setShowForm(false)} className="absolute top-3 right-3 text-slate-400 hover:text-slate-900"><X className="w-4 h-4" /></button>
                         <h2 className="text-base lg:text-lg font-black text-slate-900 mb-2">{t('newService')}</h2>
                         <div className="space-y-1.5 lg:space-y-2">
