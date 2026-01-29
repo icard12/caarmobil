@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -46,6 +46,8 @@ model ServiceOrder {
   status       String
   price        Float
   imageUrl     String?
+  frontImageUrl String?
+  backImageUrl  String?
   created_at   DateTime      @default(now())
   updated_at   DateTime      @updatedAt
   delivered_at DateTime?
@@ -61,11 +63,14 @@ model User {
   password         String
   role             String
   avatar           String?
+  isActive         Boolean         @default(true)
+  isDeleted        Boolean         @default(false)
   createdAt        DateTime        @default(now())
   resetToken       String?
   resetTokenExpiry DateTime?
   movements        StockMovement[]
   logs             SystemLog[]
+  permissionRequests PermissionRequest[]
 }
 
 model ServicePart {
@@ -109,3 +114,16 @@ model SystemLog {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
 }
+
+model PermissionRequest {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   // "CREATE_PRODUCT", "UPDATE_PRODUCT", "DELETE_PRODUCT"
+  details   String   // JSON string with product data
+  targetId  String?  // ID of the product being edited/deleted
+  status    String   @default("pending") // "pending", "approved", "rejected"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+

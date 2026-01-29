@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CAAR MOBIL</string>
+    <string name="title_activity_main">CAAR MOBIL</string>
+    <string name="package_name">com.callmobile.caarmobil</string>
+    <string name="custom_url_scheme">com.callmobile.caarmobil</string>
+</resources>

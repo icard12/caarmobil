@@ -110,6 +110,17 @@ export const api = {
                 body: JSON.stringify(data)
             });
             return res.json();
+        },
+        delete: async (id: string) => {
+            const res = await fetch(`${API_URL}/services/${id}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.error || 'Erro ao excluir serviço');
+            }
+            return res.json();
         }
     },
     stats: {
@@ -260,6 +271,33 @@ export const api = {
                 headers: getAuthHeaders(),
                 body: JSON.stringify(data)
             });
+            return res.json();
+        }
+    },
+    permissionRequests: {
+        list: async () => {
+            const res = await fetch(`${API_URL}/permission-requests`, {
+                headers: getAuthHeaders()
+            });
+            if (!res.ok) throw new Error(`Erro ao buscar solicitações (${res.status})`);
+            return res.json();
+        },
+        create: async (data: { type: string, details: any, targetId?: string }) => {
+            const res = await fetch(`${API_URL}/permission-requests`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(data)
+            });
+            if (!res.ok) throw new Error(`Erro ao criar solicitação (${res.status})`);
+            return res.json();
+        },
+        update: async (id: string, status: 'approved' | 'rejected') => {
+            const res = await fetch(`${API_URL}/permission-requests/${id}`, {
+                method: 'PATCH',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ status })
+            });
+            if (!res.ok) throw new Error(`Erro ao processar solicitação (${res.status})`);
             return res.json();
         }
     }

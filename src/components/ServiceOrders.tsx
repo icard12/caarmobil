@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, CheckCircle2, Clock, Smartphone, User, FileText, DollarSign, X, Image as ImageIcon, Search, Package, Trash2 } from 'lucide-react';
+import { Plus, CheckCircle2, Clock, Smartphone, User, FileText, DollarSign, X, Image as ImageIcon, Search, Package, Trash2, Trash, Pencil } from 'lucide-react';
 import ImageUpload from './ui/ImageUpload';
 import { api } from '../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useTeam } from '../contexts/TeamContext';
+import { useNotifications } from '../contexts/NotificationContext';
 
 interface ServiceOrder {
     id: string;
@@ -15,6 +17,8 @@ interface ServiceOrder {
     createdAt: string;
     deliveredAt?: string | null;
     imageUrl?: string;
+    frontImageUrl?: string;
+    backImageUrl?: string;
     parts?: Array<{
         id: string;
         productId: string;
@@ -26,16 +30,23 @@ interface ServiceOrder {
 
 export default function ServiceOrders() {
     const { t, locale } = useLanguage();
+    const { currentUser } = useTeam();
+    const { addNotification } = useNotifications();
+    const isAdmin = currentUser?.role === 'admin';
     const [services, setServices] = useState<ServiceOrder[]>([]);
     const [showForm, setShowForm] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [formData, setFormData] = useState({
         clientName: '',
         clientPhone: '',
         deviceModel: '',
         description: '',
         price: '',
-        imageUrl: ''
+        imageUrl: '',
+        frontImageUrl: '',
+        backImageUrl: ''
     });
+    const [viewImage, setViewImage] = useState<string | null>(null);
     const [availableProducts, setAvailableProducts] = useState<any[]>([]);
     const [selectedParts, setSelectedParts] = useState<any[]>([]);
     const [partSearch, setPartSearch] = useState('');
@@ -76,6 +87,20 @@ export default function ServiceOrders() {
     };
 
     const handleUpdateStatus = async (id: string, status: string) => {
+        if (!isAdmin) {
+            try {
+                await api.permissionRequests.create({
+                    type: 'UPDATE_SERVICE_STATUS',
+                    details: { status },
+                    targetId: id
+                });
+                addNotification?.(t('requestSent') || 'Solicitação enviada ao administrador', 'info');
+                return;
+            } catch (error) {
+                console.error('Error sending request:', error);
+                return;
+            }
+        }
         try {
             const updated = await api.services.update(id, { status });
             setServices(services.map((s: ServiceOrder) => s.id === id ? updated : s));
@@ -84,21 +109,92 @@ export default function ServiceOrders() {
         }
     };
 
-    const handleAddService = async () => {
+    const handleDeleteService = async (id: string) => {
+        if (!confirm(t('deleteTransactionConfirm') || 'Tem certeza que deseja excluir?')) return;
+
+        if (!isAdmin) {
+            try {
+                await api.permissionRequests.create({
+                    type: 'DELETE_SERVICE',
+                    details: { id },
+                    targetId: id
+                });
+                addNotification?.(t('requestSent') || 'Solicitação de exclusão enviada', 'info');
+                return;
+            } catch (error) {
+                console.error('Error sending request:', error);
+                return;
+            }
+        }
+
         try {
-            const newService = await api.services.create({
-                ...formData,
-                status: 'pending',
-                price: parseFloat(formData.price) || 0,
-                parts: selectedParts.map(p => ({ productId: p.id, quantity: p.qty }))
-            });
-            setServices([newService, ...services]);
+            await api.services.delete(id);
+            setServices(services.filter((s: ServiceOrder) => s.id !== id));
+        } catch (error) {
+            console.error('Error deleting service:', error);
+        }
+    };
+
+    const handleSaveService = async () => {
+        try {
+            const servicePrice = parseFloat(formData.price) || 0;
+            const serviceParts = selectedParts.map(p => ({ productId: p.id, quantity: p.qty }));
+
+            if (!isAdmin) {
+                await api.permissionRequests.create({
+                    type: editingId ? 'UPDATE_SERVICE' : 'CREATE_SERVICE',
+                    details: {
+                        ...formData,
+                        price: servicePrice,
+                        parts: serviceParts
+                    },
+                    targetId: editingId || undefined
+                });
+                addNotification?.(t('requestSent') || 'Solicitação enviada ao administrador', 'info');
+                setShowForm(false);
+                setEditingId(null);
+                setFormData({ clientName: '', clientPhone: '', deviceModel: '', description: '', price: '', imageUrl: '', frontImageUrl: '', backImageUrl: '' });
+                setSelectedParts([]);
+                return;
+            }
+
+            if (editingId) {
+                const updated = await api.services.update(editingId, {
+                    ...formData,
+                    price: servicePrice
+                });
+                setServices(services.map(s => s.id === editingId ? updated : s));
+            } else {
+                const newService = await api.services.create({
+                    ...formData,
+                    status: 'pending',
+                    price: servicePrice,
+                    parts: serviceParts
+                });
+                setServices([newService, ...services]);
+            }
             setShowForm(false);
-            setFormData({ clientName: '', clientPhone: '', deviceModel: '', description: '', price: '', imageUrl: '' });
+            setEditingId(null);
+            setFormData({ clientName: '', clientPhone: '', deviceModel: '', description: '', price: '', imageUrl: '', frontImageUrl: '', backImageUrl: '' });
             setSelectedParts([]);
         } catch (error) {
-            console.error('Error creating service:', error);
+            console.error('Error saving service:', error);
         }
+    };
+
+    const handleEditService = (service: ServiceOrder) => {
+        setFormData({
+            clientName: service.clientName,
+            clientPhone: service.clientPhone || '',
+            deviceModel: service.deviceModel,
+            description: service.description,
+            price: service.price.toString(),
+            imageUrl: service.imageUrl || '',
+            frontImageUrl: service.frontImageUrl || '',
+            backImageUrl: service.backImageUrl || ''
+        });
+        setEditingId(service.id);
+        setShowForm(true);
     };
 
     const getStatusColor = (status: string) => {
@@ -194,10 +290,38 @@ export default function ServiceOrders() {
                                     </span>
                                 )}
                             </div>
-                            <div className="flex gap-2.5 lg:gap-4">
+                            <div className="flex gap-2 lg:gap-3">
                                 {service.imageUrl && (
-                                    <div className="w-10 h-10 lg:w-16 lg:h-16 rounded-lg lg:rounded-xl overflow-hidden border border-slate-100 shrink-0">
-                                        <img src={service.imageUrl} alt={t('device')} className="w-full h-full object-cover" />
+                                    <div
+                                        className="w-10 h-10 lg:w-16 lg:h-16 rounded-lg lg:rounded-xl overflow-hidden border border-slate-100 shrink-0 cursor-zoom-in group/img relative"
+                                        onClick={() => setViewImage(service.imageUrl || null)}
+                                    >
+                                        <img src={service.imageUrl} alt={t('device')} className="w-full h-full object-cover transition-transform group-hover/img:scale-110" />
+                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                                            <Search className="w-4 h-4 text-white" />
+                                        </div>
+                                    </div>
+                                )}
+                                {service.frontImageUrl && (
+                                    <div
+                                        className="w-10 h-10 lg:w-16 lg:h-16 rounded-lg lg:rounded-xl overflow-hidden border border-slate-100 shrink-0 cursor-zoom-in group/img relative"
+                                        onClick={() => setViewImage(service.frontImageUrl || null)}
+                                    >
+                                        <img src={service.frontImageUrl} alt="Front" className="w-full h-full object-cover transition-transform group-hover/img:scale-110" />
+                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-[8px] text-white font-black uppercase">
+                                            {t('frontPhoto')}
+                                        </div>
+                                    </div>
+                                )}
+                                {service.backImageUrl && (
+                                    <div
+                                        className="w-10 h-10 lg:w-16 lg:h-16 rounded-lg lg:rounded-xl overflow-hidden border border-slate-100 shrink-0 cursor-zoom-in group/img relative"
+                                        onClick={() => setViewImage(service.backImageUrl || null)}
+                                    >
+                                        <img src={service.backImageUrl} alt="Back" className="w-full h-full object-cover transition-transform group-hover/img:scale-110" />
+                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-[8px] text-white font-black uppercase">
+                                            {t('backPhoto')}
+                                        </div>
                                     </div>
                                 )}
                                 <div className="min-w-0">
@@ -256,6 +380,24 @@ export default function ServiceOrders() {
                                         {t('deliver')}
                                     </button>
                                 )}
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => handleEditService(service)}
+                                        className="p-2.5 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all border border-blue-100"
+                                        title={t('edit')}
+                                    >
+                                        <Pencil className="w-4 h-4" />
+                                    </button>
+                                )}
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => handleDeleteService(service.id)}
+                                        className="p-2.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition-all border border-rose-100"
+                                        title={t('delete')}
+                                    >
+                                        <Trash className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -263,33 +405,40 @@ export default function ServiceOrders() {
             </div>
 
             {showForm && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-2 lg:p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-[95%] sm:max-w-lg rounded-2xl lg:rounded-3xl p-4 lg:p-6 shadow-2xl relative animate-in zoom-in-95 max-h-[90vh] overflow-y-auto custom-scrollbar">
-                        <button onClick={() => setShowForm(false)} className="absolute top-3 right-3 text-slate-400 hover:text-slate-900"><X className="w-4 h-4" /></button>
-                        <h2 className="text-base lg:text-lg font-black text-slate-900 mb-2">{t('newService')}</h2>
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 lg:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white w-full sm:max-w-lg rounded-t-[32px] sm:rounded-[32px] p-5 lg:p-8 shadow-2xl relative animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-2 duration-500 max-h-[95vh] sm:max-h-[90vh] overflow-y-auto custom-scrollbar pb-safe">
+                        <div className="flex items-center justify-between mb-5 sticky top-0 bg-white z-10 pb-2">
+                            <div>
+                                <h2 className="text-xl lg:text-2xl font-black text-slate-900 tracking-tight">{editingId ? t('editProduct') : t('newService')}</h2>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mt-1">{editingId ? 'Atualização de Ativo' : 'Registro de Ativo Digital'}</p>
+                            </div>
+                            <button onClick={() => { setShowForm(false); setEditingId(null); }} className="w-10 h-10 flex items-center justify-center bg-slate-100 text-slate-500 hover:text-slate-900 rounded-full active:scale-90 transition-all border border-slate-200">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
                         <div className="space-y-1.5 lg:space-y-2">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 lg:gap-2">
                                 <div className="space-y-1">
-                                    <label className="text-[10px] lg:text-xs font-bold text-slate-500 uppercase block">{t('client')}</label>
-                                    <div className="relative">
-                                        <User className="absolute left-3 lg:left-4 top-2.5 lg:top-3.5 w-3.5 h-3.5 lg:w-4 lg:h-4 text-slate-400" />
+                                    <label className="text-[10px] lg:text-xs font-black text-slate-500 uppercase tracking-wider mb-1 block">{t('client')}</label>
+                                    <div className="relative group">
+                                        <User className="absolute left-3.5 lg:left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-[#FF4700] transition-colors" />
                                         <input
                                             type="text"
                                             placeholder={t('client')}
-                                            className="w-full pl-8 lg:pl-9 pr-2 py-1 lg:py-1.5 bg-slate-50 rounded-lg lg:rounded-xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-semibold text-[11px] lg:text-xs"
+                                            className="w-full pl-10 lg:pl-11 pr-4 py-3.5 lg:py-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-bold text-sm transition-all"
                                             value={formData.clientName}
                                             onChange={e => setFormData({ ...formData, clientName: e.target.value })}
                                         />
                                     </div>
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-[10px] lg:text-xs font-bold text-slate-500 uppercase block">{t('phone')}</label>
-                                    <div className="relative">
-                                        <Smartphone className="absolute left-3 lg:left-4 top-2.5 lg:top-3.5 w-3.5 h-3.5 lg:w-4 lg:h-4 text-slate-400" />
+                                    <label className="text-[10px] lg:text-xs font-black text-slate-500 uppercase tracking-wider mb-1 block">{t('phone')}</label>
+                                    <div className="relative group">
+                                        <Smartphone className="absolute left-3.5 lg:left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-[#FF4700] transition-colors" />
                                         <input
                                             type="text"
                                             placeholder={t('phoneNumberPlaceholder')}
-                                            className="w-full pl-8 lg:pl-9 pr-2 py-1 lg:py-1.5 bg-slate-50 rounded-lg lg:rounded-xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-semibold text-[11px] lg:text-xs"
+                                            className="w-full pl-10 lg:pl-11 pr-4 py-3.5 lg:py-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-bold text-sm transition-all"
                                             value={formData.clientPhone}
                                             onChange={e => setFormData({ ...formData, clientPhone: e.target.value })}
                                         />
@@ -298,26 +447,26 @@ export default function ServiceOrders() {
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 lg:gap-3">
                                 <div className="space-y-1">
-                                    <label className="text-[10px] lg:text-xs font-bold text-slate-500 uppercase block">{t('device')}</label>
-                                    <div className="relative">
-                                        <Smartphone className="absolute left-2.5 lg:left-3 top-1.5 lg:top-2 w-3 h-3 lg:w-3.5 lg:h-3.5 text-slate-400" />
+                                    <label className="text-[10px] lg:text-xs font-black text-slate-500 uppercase tracking-wider mb-1 block">{t('device')}</label>
+                                    <div className="relative group">
+                                        <Smartphone className="absolute left-3.5 lg:left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-[#FF4700] transition-colors" />
                                         <input
                                             type="text"
                                             placeholder={t('model')}
-                                            className="w-full pl-8 lg:pl-9 pr-2 py-1 lg:py-1.5 bg-slate-50 rounded-lg lg:rounded-xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-semibold text-[11px] lg:text-xs"
+                                            className="w-full pl-10 lg:pl-11 pr-4 py-3.5 lg:py-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-bold text-sm transition-all"
                                             value={formData.deviceModel}
                                             onChange={e => setFormData({ ...formData, deviceModel: e.target.value })}
                                         />
                                     </div>
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-[10px] lg:text-xs font-bold text-slate-500 uppercase block">{t('value')} (MT)</label>
-                                    <div className="relative">
-                                        <DollarSign className="absolute left-2.5 lg:left-3 top-1.5 lg:top-2 w-3 h-3 lg:w-3.5 lg:h-3.5 text-slate-400" />
+                                    <label className="text-[10px] lg:text-xs font-black text-slate-500 uppercase tracking-wider mb-1 block">{t('value')} (MT)</label>
+                                    <div className="relative group">
+                                        <DollarSign className="absolute left-3.5 lg:left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
                                         <input
                                             type="number"
                                             placeholder="0.00"
-                                            className="w-full pl-8 lg:pl-9 pr-2 py-1 lg:py-1.5 bg-slate-50 rounded-lg lg:rounded-xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-semibold text-[11px] lg:text-xs"
+                                            className="w-full pl-10 lg:pl-11 pr-4 py-3.5 lg:py-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-emerald-500/20 font-black text-sm transition-all text-emerald-600"
                                             value={formData.price}
                                             onChange={e => setFormData({ ...formData, price: e.target.value })}
                                         />
@@ -325,10 +474,10 @@ export default function ServiceOrders() {
                                 </div>
                             </div>
                             <div className="space-y-1">
-                                <label className="text-[10px] lg:text-xs font-bold text-slate-500 uppercase block">{t('problemDescription')}</label>
+                                <label className="text-[10px] lg:text-xs font-black text-slate-500 uppercase tracking-wider mb-1 block">{t('problemDescription')}</label>
                                 <textarea
                                     placeholder={t('problemDescription')}
-                                    className="w-full p-2 bg-slate-50 rounded-lg lg:rounded-xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-semibold h-12 lg:h-14 text-[11px] lg:text-xs resize-none"
+                                    className="w-full px-4 py-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-[#FF4700]/20 font-bold h-24 lg:h-28 text-sm resize-none transition-all"
                                     value={formData.description}
                                     onChange={e => setFormData({ ...formData, description: e.target.value })}
                                 />
@@ -401,7 +550,33 @@ export default function ServiceOrders() {
                                     </div>
                                 </div>
                             </div>
-                            <div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-2 pt-2 border-t border-slate-100">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1.5 flex items-center gap-2">
+                                        <ImageIcon className="w-3 h-3" /> {t('frontPhoto')}
+                                    </label>
+                                    <ImageUpload
+                                        onUpload={(url) => setFormData({ ...formData, frontImageUrl: url })}
+                                        initialUrl={formData.frontImageUrl}
+                                        bucket="service-orders"
+                                        compact={true}
+                                        className="w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1.5 flex items-center gap-2">
+                                        <ImageIcon className="w-3 h-3" /> {t('backPhoto')}
+                                    </label>
+                                    <ImageUpload
+                                        onUpload={(url) => setFormData({ ...formData, backImageUrl: url })}
+                                        initialUrl={formData.backImageUrl}
+                                        bucket="service-orders"
+                                        compact={true}
+                                        className="w-full"
+                                    />
+                                </div>
+                            </div>
+                            <div className="hidden">
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
                                     <ImageIcon className="w-3.5 h-3.5" /> {t('devicePhoto')}
                                 </label>
@@ -413,13 +588,38 @@ export default function ServiceOrders() {
                                 />
                             </div>
                             <button
-                                onClick={handleAddService}
-                                className="w-full py-3 bg-[#FF4700] text-white font-bold rounded-xl shadow-glow-orange hover:bg-[#E64000] transition-all active:scale-95 mt-2"
+                                onClick={handleSaveService}
+                                className="w-full py-4 lg:py-5 bg-gradient-to-r from-[#FF4700] to-[#FF6A00] text-white font-black uppercase text-xs lg:text-sm tracking-[0.2em] rounded-24 lg:rounded-2xl shadow-glow-orange hover:brightness-110 active:scale-[0.98] transition-all mt-4 mb-2"
                             >
-                                {t('save')}
+                                {editingId ? t('save') : t('newService')}
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+            {/* Full Image Viewer - Optimized for Mobile & iOS */}
+            {viewImage && (
+                <div
+                    className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4 md:p-8 animate-in fade-in duration-300"
+                    onClick={() => setViewImage(null)}
+                    style={{ overscrollBehavior: 'contain' }}
+                >
+                    <button
+                        className="absolute top-safe-4 right-6 lg:top-8 lg:right-8 w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors z-[210] active:scale-90"
+                        onClick={() => setViewImage(null)}
+                    >
+                        <X className="w-6 h-6 md:w-8 md:h-8" />
+                    </button>
+
+                    <div className="relative w-full h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
+                        <img
+                            src={viewImage}
+                            className="max-w-full max-h-full object-contain rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.8)] animate-in zoom-in-95 duration-500"
+                        />
+                    </div>
+
+                    {/* iOS Home Indicator Padding */}
+                    <div className="absolute bottom-0 h-10 w-full pointer-events-none" />
                 </div>
             )}
         </div>

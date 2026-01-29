@@ -9,12 +9,14 @@ export interface User {
     role: 'admin' | 'manager' | 'employee';
     password?: string;
     avatar?: string;
+    isActive: boolean;
+    isDeleted: boolean;
     createdAt: string;
 }
 
 interface TeamContextType {
     users: User[];
-    addUser: (user: Omit<User, 'id' | 'createdAt'>) => Promise<void>;
+    addUser: (user: Omit<User, 'id' | 'createdAt' | 'isActive' | 'isDeleted'>) => Promise<void>;
     removeUser: (id: string) => Promise<void>;
     updateUser: (id: string, user: Partial<User>) => Promise<void>;
     currentUser: User | null;
@@ -76,7 +78,7 @@ export function TeamProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const addUser = async (userData: Omit<User, 'id' | 'createdAt'>) => {
+    const addUser = async (userData: Omit<User, 'id' | 'createdAt' | 'isActive' | 'isDeleted'>) => {
         try {
             const newUser = await api.users.create(userData); // Assuming an api.users.create method
             setUsers((prev) => [newUser, ...prev]);

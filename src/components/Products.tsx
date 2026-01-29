@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import logo from '../assets/logo.png';
-import { Plus, Tag, DollarSign, Layers, X, Pencil, Image as ImageIcon, ArrowUpRight, ArrowDownRight, AlertTriangle, Trash2, ShoppingCart } from 'lucide-react';
+import { Plus, Tag, DollarSign, Layers, X, Pencil, Image as ImageIcon, ArrowUpRight, ArrowDownRight, AlertTriangle, Trash2, ShoppingCart, Check, Clock } from 'lucide-react';
 import ImageUpload from './ui/ImageUpload';
 import DataTable, { TableColumn } from './dashboard/DataTable';
 import { Product } from '../lib/supabase';
@@ -27,7 +27,7 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
     const { currentUser } = useTeam();
     const { addNotification } = useNotifications();
     const { t, locale } = useLanguage();
-    const { products, loading, refreshData } = useTransactions();
+    const { products, pendingRequests, loading, refreshData } = useTransactions();
 
     // We still keep a small local state for optimistic updates during the current session
     // but we initialize it from the global products.
@@ -55,6 +55,29 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
         image_url: ''
     });
 
+    const isAdmin = currentUser?.role === 'admin';
+
+    const handleApproveRequest = async (id: string) => {
+        try {
+            await api.permissionRequests.update(id, 'approved');
+            addNotification(t('requestApproved') || 'Solicitação aprovada!', 'success');
+            refreshData();
+        } catch (error) {
+            addNotification(t('errorApproving') || 'Erro ao aprovar solicitação', 'error');
+        }
+    };
+
+    const handleRejectRequest = async (id: string) => {
+        try {
+            await api.permissionRequests.update(id, 'rejected');
+            addNotification(t('requestRejected') || 'Solicitação rejeitada', 'info');
+            refreshData();
+        } catch (error) {
+            addNotification(t('errorRejecting') || 'Erro ao rejeitar solicitação', 'error');
+        }
+    };
+
+
     // refreshData is already available via destructuring at line 30
 
     async function handleAdjustStock() {
@@ -68,6 +91,27 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
         if (adjustData.type === 'exit' && (selectedProduct.stock - qty) < 0) {
             addNotification(t('negativeStockError'), 'error');
             return;
+        }
+
+        if (!isAdmin && !isQuickSell) {
+            try {
+                await api.permissionRequests.create({
+                    type: 'UPDATE_PRODUCT',
+                    details: {
+                        ...selectedProduct,
+                        stock: selectedProduct.stock + (adjustData.type === 'entry' ? qty : -qty),
+                        // Add reason to details so admin can see why
+                        _reason: adjustData.reason || (adjustData.type === 'entry' ? 'Entrada Manual' : 'Saída Manual')
+                    },
+                    targetId: selectedProduct.id
+                });
+                addNotification(t('requestSent') || 'Solicitação de ajuste enviada ao administrador', 'info');
+                setShowAdjustModal(false);
+                return;
+            } catch (error) {
+                addNotification(t('errorSendingRequest') || 'Erro ao enviar solicitação', 'error');
+                return;
+            }
         }
 
         try {
@@ -100,25 +144,45 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
 
             // Global refresh for real-time totals
             refreshData();
-        } catch (error) {
-            addNotification(t('errorSavingProduct'), 'error');
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || t('errorSavingProduct');
+            addNotification(errorMsg, 'error');
         }
     }
 
     async function handleSaveProduct() {
         if (!formData.name || !formData.price || !formData.stock) return;
 
-        try {
-            const productData = {
-                name: formData.name,
-                category: formData.category,
-                price: parseFloat(formData.price),
-                costPrice: parseFloat(formData.costPrice || '0'),
-                stock: parseInt(formData.stock),
-                minStock: parseInt(formData.minStock),
-                image_url: formData.image_url,
-            };
+        const productData = {
+            name: formData.name,
+            category: formData.category,
+            price: parseFloat(formData.price),
+            costPrice: parseFloat(formData.costPrice || '0'),
+            stock: parseInt(formData.stock),
+            minStock: parseInt(formData.minStock),
+            image_url: formData.image_url,
+        };
 
+        if (!isAdmin) {
+            try {
+                await api.permissionRequests.create({
+                    type: isEditing ? 'UPDATE_PRODUCT' : 'CREATE_PRODUCT',
+                    details: productData,
+                    targetId: editId || undefined
+                });
+                addNotification(t('requestSent') || 'Solicitação enviada ao administrador', 'info');
+                setShowForm(false);
+                setIsEditing(false);
+                setEditId(null);
+                setFormData({ name: '', category: 'Smartphones & Tablets', price: '', costPrice: '', stock: '', minStock: '5', image_url: '' });
+                return;
+            } catch (error) {
+                addNotification(t('errorSendingRequest') || 'Erro ao enviar solicitação', 'error');
+                return;
+            }
+        }
+
+        try {
             if (isEditing && editId) {
                 // Optimistic update for edit
                 const updatedProduct = {
@@ -159,7 +223,8 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
             setFormData({ name: '', category: 'Smartphones & Tablets', price: '', costPrice: '', stock: '', minStock: '5', image_url: '' });
         } catch (error: any) {
             console.error('Error saving product:', error);
-            addNotification(t('errorSavingProduct'), 'error');
+            const errorMsg = error.response?.data?.error || t('errorSavingProduct');
+            addNotification(errorMsg, 'error');
         }
     }
 
@@ -180,6 +245,21 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
 
     async function handleDeleteProduct(id: string) {
         if (!confirm(t('deleteProductConfirm'))) return;
+
+        if (!isAdmin) {
+            try {
+                await api.permissionRequests.create({
+                    type: 'DELETE_PRODUCT',
+                    details: { id },
+                    targetId: id
+                });
+                addNotification(t('requestSent') || 'Solicitação de exclusão enviada', 'info');
+                return;
+            } catch (error) {
+                addNotification(t('errorSendingRequest') || 'Erro ao enviar solicitação', 'error');
+                return;
+            }
+        }
 
         try {
             await api.products.delete([id]);
@@ -206,6 +286,26 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
     async function executeQuickSell(product: Product) {
         if (!currentUser) return;
         setConfirmQuickSell(null);
+
+        if (!isAdmin) {
+            try {
+                await api.permissionRequests.create({
+                    type: 'UPDATE_PRODUCT',
+                    details: {
+                        ...product,
+                        stock: product.stock - 1,
+                        _reason: t('quickSell')
+                    },
+                    targetId: product.id
+                });
+                addNotification(t('requestSent') || 'Solicitação de venda enviada ao administrador', 'info');
+                return;
+            } catch (error) {
+                addNotification(t('errorSendingRequest') || 'Erro ao enviar solicitação', 'error');
+                return;
+            }
+        }
+
         setIsSellingId(product.id);
         try {
             await api.products.adjustStock({
@@ -213,7 +313,8 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
                 userId: currentUser.id,
                 type: 'exit',
                 quantity: 1,
-                reason: t('quickSell')
+                reason: t('quickSell'),
+                isFinancial: true
             });
 
             // Optimistic update for immediate feedback
@@ -353,6 +454,53 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
 
     return (
         <div className="space-y-6 max-w-[1600px] mx-auto transition-all duration-500">
+            {isAdmin && pendingRequests.length > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-3xl p-6 mb-6 animate-slide-up">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2 bg-orange-100 rounded-xl text-orange-600">
+                            <Clock className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black text-orange-900 uppercase tracking-tight">Solicitações Pendentes ({pendingRequests.length})</h3>
+                            <p className="text-xs font-bold text-orange-700/60 uppercase">Outros usuários solicitaram alterações no estoque</p>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {pendingRequests.map(req => {
+                            const details = JSON.parse(req.details);
+                            return (
+                                <div key={req.id} className="bg-white border border-orange-100 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+                                    <div>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-[10px] font-black px-2 py-0.5 bg-orange-100 text-orange-600 rounded-full uppercase">
+                                                {req.type === 'CREATE_PRODUCT' ? 'Novo Produto' : req.type === 'UPDATE_PRODUCT' ? 'Edição' : 'Exclusão'}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-slate-400">{new Date(req.createdAt).toLocaleDateString()}</span>
+                                        </div>
+                                        <p className="text-sm font-black text-slate-800 mb-1">{details.name || 'Produto ID: ' + (req.targetId || 'Novo')}</p>
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase">Solicitante: <span className="text-orange-600">{req.user.name}</span></p>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-4">
+                                        <button
+                                            onClick={() => handleApproveRequest(req.id)}
+                                            className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1"
+                                        >
+                                            <Check className="w-3 h-3" /> Aprovar
+                                        </button>
+                                        <button
+                                            onClick={() => handleRejectRequest(req.id)}
+                                            className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1"
+                                        >
+                                            <X className="w-3 h-3" /> Rejeitar
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 lg:gap-8 animate-slide-up">
                 <div className="space-y-0.5 lg:space-y-1">
                     <h1 className="text-xl lg:text-4xl font-black text-[var(--text-main)] tracking-tighter">{t('inventoryMotor')}</h1>
@@ -368,7 +516,7 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
                     className="flex items-center justify-center gap-2 px-6 py-3 lg:py-3 bg-[#FF4700] text-white text-xs lg:text-sm font-bold rounded-xl shadow-glow-orange hover:bg-[#E64000] transition-all active:scale-95 w-full md:w-auto"
                 >
                     <Plus className="w-5 h-5" />
-                    <span>{t('addProduct')}</span>
+                    <span>{isAdmin ? t('addProduct') : 'Solicitar Adição'}</span>
                 </button>
             </div>
 
@@ -379,7 +527,12 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
                         <div className="absolute top-0 right-0 w-64 h-64 bg-brand-orange/5 rounded-full blur-3xl pointer-events-none -translate-y-1/2 translate-x-1/2" />
 
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-bold text-[var(--text-main)] tracking-tight">{isEditing ? t('editProduct') : t('addProduct')}</h2>
+                            <h2 className="text-xl font-bold text-[var(--text-main)] tracking-tight">
+                                {isAdmin
+                                    ? (isEditing ? t('editProduct') : t('addProduct'))
+                                    : (isEditing ? 'Solicitar Edição' : 'Solicitar Adição de Produto')
+                                }
+                            </h2>
                             <button onClick={() => setShowForm(false)} className="text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors">
                                 <X className="w-5 h-5" />
                             </button>
@@ -476,7 +629,7 @@ export default function Products({ searchQuery = '' }: ProductsProps) {
                                 onClick={handleSaveProduct}
                                 className="px-6 py-2.5 bg-[#FF4700] text-white text-sm font-bold rounded-xl hover:bg-[#E64000] transition-all shadow-glow-orange hover:shadow-[0_0_20px_rgba(255,71,0,0.3)] active:scale-95 flex items-center gap-2"
                             >
-                                <Plus className="w-4 h-4" /> {t('save')}
+                                <Plus className="w-4 h-4" /> {isAdmin ? t('save') : 'Enviar Solicitação'}
                             </button>
                         </div>
                     </div>

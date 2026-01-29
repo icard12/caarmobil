@@ -154,8 +154,8 @@ export default function Header({ title, onSearch }: HeaderProps) {
             className={`flex-1 relative group transition-all focus-within:z-50 ${isSearching ? 'z-50' : 'z-10'}`}
           >
             <div className="absolute left-3 lg:left-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5 lg:gap-3">
-              <Search className="w-3.5 h-3.5 lg:w-6 lg:h-6 text-slate-400 group-focus-within:text-[#FF4700] transition-colors" />
-              <div className="hidden xs:block w-px h-3 lg:h-5 bg-slate-200" />
+              <Search className="w-3.5 h-3.5 lg:w-6 lg:h-6 text-[var(--text-muted)] group-focus-within:text-[#FF4700] transition-colors" />
+              <div className="hidden xs:block w-px h-3 lg:h-5 bg-[var(--border-subtle)]" />
             </div>
             <input
               id="global-search-input"
@@ -171,9 +171,9 @@ export default function Header({ title, onSearch }: HeaderProps) {
 
             {/* Instant Results Dropdown */}
             {isSearching && searchResults.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-3 bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden z-[110] animate-in fade-in zoom-in-95 backdrop-blur-xl">
-                <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resultados Sugeridos</span>
+              <div className="absolute top-full left-0 right-0 mt-3 bg-[var(--bg-panel)] rounded-3xl shadow-2xl border border-[var(--border-subtle)] overflow-hidden z-[110] animate-in fade-in zoom-in-95 backdrop-blur-xl">
+                <div className="p-4 bg-[var(--bg-canvas)]/80 border-b border-[var(--border-subtle)] flex items-center justify-between">
+                  <span className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-widest">Resultados Sugeridos</span>
                   <span className="text-[9px] font-bold text-[#FF4700] uppercase tracking-tighter bg-orange-100/50 px-2 py-1 rounded-lg">Instantâneo</span>
                 </div>
                 <div className="py-2">
@@ -185,10 +185,10 @@ export default function Header({ title, onSearch }: HeaderProps) {
                         setIsSearching(false);
                       }}
                       onMouseEnter={() => setSelectedIndex(index)}
-                      className={`w-full flex items-center gap-4 px-5 py-4 text-left transition-all ${selectedIndex === index ? 'bg-[#FF4700]/5 scale-[0.99] translate-x-1' : 'hover:bg-slate-50'
+                      className={`w-full flex items-center gap-4 px-5 py-4 text-left transition-all ${selectedIndex === index ? 'bg-[#FF4700]/5 scale-[0.99] translate-x-1' : 'hover:bg-[var(--bg-canvas)]'
                         }`}
                     >
-                      <div className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-[var(--bg-canvas)] overflow-hidden border border-[var(--border-subtle)] shrink-0">
                         <img
                           src={product.image_url || logo}
                           alt=""
@@ -196,18 +196,18 @@ export default function Header({ title, onSearch }: HeaderProps) {
                         />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-black text-slate-900 truncate">{product.name}</p>
+                        <p className="text-[14px] font-black text-[var(--text-main)] truncate">{product.name}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] font-black text-[#FF4700] uppercase tracking-wider bg-orange-50 px-1.5 py-0.5 rounded">
                             ID: {product.id.slice(0, 8).toUpperCase()}
                           </span>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase">
+                          <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase">
                             • {product.category || 'Geral'}
                           </span>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-[15px] font-black text-slate-900 leading-none">MT {product.price.toFixed(2)}</p>
+                        <p className="text-[15px] font-black text-[var(--text-main)] leading-none">MT {product.price.toFixed(2)}</p>
                         <div className={`inline-flex items-center gap-1.5 mt-2 px-2 py-0.5 rounded-full ${product.stock > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
                           <div className={`w-1 h-1 rounded-full ${product.stock > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                           <span className="text-[10px] font-black uppercase tracking-tighter">
@@ -218,8 +218,8 @@ export default function Header({ title, onSearch }: HeaderProps) {
                     </button>
                   ))}
                 </div>
-                <div className="p-4 bg-slate-50/80 border-t border-slate-100 text-center">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <div className="p-4 bg-[var(--bg-canvas)]/80 border-t border-[var(--border-subtle)] text-center">
+                  <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-widest">
                     Pressione <span className="text-[#FF4700]">ESC</span> para fechar
                   </p>
                 </div>
@@ -245,7 +245,7 @@ export default function Header({ title, onSearch }: HeaderProps) {
                     setShowLiveFeed(!showLiveFeed);
                     if (!showLiveFeed) setLiveUnreadCount(0);
                   }}
-                  className={`relative p-2 lg:p-2.5 rounded-xl transition-all group ${showLiveFeed ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-100'}`}
+                  className={`relative p-2 lg:p-2.5 rounded-xl transition-all group ${showLiveFeed ? 'bg-indigo-50 text-indigo-600' : 'text-[var(--text-muted)] hover:text-indigo-600 hover:bg-[var(--bg-canvas)]'}`}
                   title="Monitoramento ao Vivo"
                 >
                   <Activity className={`w-4 h-4 lg:w-5 lg:h-5 ${liveUnreadCount > 0 ? 'animate-pulse' : ''}`} />
@@ -266,7 +266,7 @@ export default function Header({ title, onSearch }: HeaderProps) {
 
             <button
               onClick={() => setShowNotifications(!showNotifications)}
-              className="relative p-2 lg:p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all group"
+              className="relative p-2 lg:p-2.5 text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-canvas)] rounded-xl transition-all group"
             >
               <Bell className="w-4 h-4 lg:w-5 lg:h-5" />
               {notifications.length > 0 && (
@@ -277,9 +277,9 @@ export default function Header({ title, onSearch }: HeaderProps) {
             </button>
 
             {showNotifications && (
-              <div className="absolute top-full right-0 mt-3 w-64 lg:w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 backdrop-blur-xl">
-                <div className="p-3 lg:p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                  <h3 className="font-bold text-slate-900 text-xs lg:text-sm">Notificações</h3>
+              <div className="absolute top-full right-0 mt-3 w-64 lg:w-80 bg-[var(--bg-panel)] rounded-2xl shadow-xl border border-[var(--border-subtle)] overflow-hidden z-50 animate-in fade-in zoom-in-95 backdrop-blur-xl">
+                <div className="p-3 lg:p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-canvas)]/50">
+                  <h3 className="font-bold text-[var(--text-main)] text-xs lg:text-sm">Notificações</h3>
                   {notifications.length > 0 && (
                     <button onClick={clearNotifications} className="text-[10px] lg:text-xs text-[#FF4700] font-bold hover:underline">
                       Limpar
@@ -288,19 +288,19 @@ export default function Header({ title, onSearch }: HeaderProps) {
                 </div>
                 <div className="max-h-[250px] lg:max-h-[300px] overflow-y-auto custom-scrollbar">
                   {notifications.length === 0 ? (
-                    <div className="p-6 lg:p-8 text-center text-slate-400 text-xs lg:text-sm font-medium">
+                    <div className="p-6 lg:p-8 text-center text-[var(--text-muted)] text-xs lg:text-sm font-medium">
                       Nenhuma notificação
                     </div>
                   ) : (
                     notifications.map((notification) => (
-                      <div key={notification.id} className="p-3 lg:p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                      <div key={notification.id} className="p-3 lg:p-4 border-b border-[var(--border-subtle)] hover:bg-[var(--bg-canvas)] transition-colors">
                         <div className="flex gap-2 lg:gap-3">
-                          <div className={`mt-0.5 w-5 h-5 lg:w-6 lg:h-6 rounded-lg flex items-center justify-center bg-slate-100 shrink-0`}>
+                          <div className={`mt-0.5 w-5 h-5 lg:w-6 lg:h-6 rounded-lg flex items-center justify-center bg-[var(--bg-canvas)] shrink-0`}>
                             {getIcon(notification.type)}
                           </div>
                           <div>
-                            <p className="text-[12px] lg:text-sm font-medium text-slate-700 leading-snug">{notification.message}</p>
-                            <span className="text-[9px] lg:text-[10px] font-bold text-slate-400 mt-1 block">
+                            <p className="text-[12px] lg:text-sm font-medium text-[var(--text-main)] leading-snug">{notification.message}</p>
+                            <span className="text-[9px] lg:text-[10px] font-bold text-[var(--text-muted)] mt-1 block">
                               {new Date(notification.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
@@ -312,7 +312,7 @@ export default function Header({ title, onSearch }: HeaderProps) {
               </div>
             )}
 
-            <button className="hidden sm:block p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all">
+            <button className="hidden sm:block p-2.5 text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-canvas)] rounded-xl transition-all">
               <Settings className="w-5 h-5" />
             </button>
 
@@ -340,17 +340,17 @@ export default function Header({ title, onSearch }: HeaderProps) {
             </button>
           </div>
 
-          <div className="h-6 lg:h-8 w-px bg-slate-200 mx-1 lg:mx-0" />
+          <div className="h-6 lg:h-8 w-px bg-[var(--border-subtle)] mx-1 lg:mx-0" />
 
           <div className="hidden xl:flex flex-col items-end -space-y-1">
             <span className="text-[10px] font-black text-[#FF4700] uppercase tracking-[0.3em] italic">{t('brandName').split(' ')[0]}</span>
-            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{t('systemActive')}</span>
+            <span className="text-[8px] font-bold text-[var(--text-muted)] uppercase tracking-widest">{t('systemActive')}</span>
           </div>
 
           <div className="flex items-center gap-2 lg:gap-3 pl-1 lg:pl-2 group relative">
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="w-8 h-8 lg:w-10 lg:h-10 rounded-xl overflow-hidden border border-slate-200 hover:border-[#FF4700]/50 transition-all flex items-center justify-center bg-slate-100 shadow-sm shrink-0"
+              className="w-8 h-8 lg:w-10 lg:h-10 rounded-xl overflow-hidden border border-[var(--border-subtle)] hover:border-[#FF4700]/50 transition-all flex items-center justify-center bg-[var(--bg-canvas)] shadow-sm shrink-0"
             >
               {currentUser?.avatar ? (
                 <img
@@ -359,15 +359,15 @@ export default function Header({ title, onSearch }: HeaderProps) {
                   className="w-full h-full object-cover transition-all"
                 />
               ) : (
-                <span className="text-[10px] lg:text-xs font-black text-slate-500">{currentUser?.name?.substring(0, 2).toUpperCase() || 'US'}</span>
+                <span className="text-[10px] lg:text-xs font-black text-[var(--text-muted)]">{currentUser?.name?.substring(0, 2).toUpperCase() || 'US'}</span>
               )}
             </button>
 
             {showUserMenu && (
-              <div className="absolute top-full right-0 mt-3 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
-                <div className="p-4 bg-slate-50 border-b border-slate-100">
-                  <p className="text-sm font-black text-slate-900 truncate">{currentUser?.name}</p>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+              <div className="absolute top-full right-0 mt-3 w-56 bg-[var(--bg-panel)] rounded-2xl shadow-2xl border border-[var(--border-subtle)] overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+                <div className="p-4 bg-[var(--bg-canvas)] border-b border-[var(--border-subtle)]">
+                  <p className="text-sm font-black text-[var(--text-main)] truncate">{currentUser?.name}</p>
+                  <p className="text-[10px] text-[var(--text-muted)] font-bold uppercase tracking-wider mt-0.5">
                     {currentUser?.role === 'admin' ? 'Administrador' : currentUser?.role === 'manager' ? 'Gerente' : 'Funcionário'}
                   </p>
                 </div>
@@ -377,7 +377,7 @@ export default function Header({ title, onSearch }: HeaderProps) {
                       setShowPasswordModal(true);
                       setShowUserMenu(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-bold text-[var(--text-main)] hover:bg-[var(--bg-canvas)] rounded-xl transition-all"
                   >
                     <Settings className="w-4 h-4" />
                     <span>Configurações da Conta</span>

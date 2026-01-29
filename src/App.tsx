@@ -14,6 +14,8 @@ import { TeamProvider, useTeam } from './contexts/TeamContext';
 import { TransactionProvider } from './contexts/TransactionContext';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { PWAProvider } from './contexts/PWAContext';
+import { useOnlinePresence } from './hooks/useOnlinePresence';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const pageVariants = {
@@ -33,6 +35,9 @@ function AppContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const { currentUser } = useTeam();
   const { t } = useLanguage();
+
+  // Track user online presence globally
+  useOnlinePresence();
 
   // If not authenticated, show Login screen
   if (!currentUser) {
@@ -114,7 +119,9 @@ function App() {
         <LanguageProvider>
           <TeamProvider>
             <TransactionProvider>
-              <AppContent />
+              <PWAProvider>
+                <AppContent />
+              </PWAProvider>
             </TransactionProvider>
           </TeamProvider>
         </LanguageProvider>

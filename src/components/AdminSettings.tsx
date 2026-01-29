@@ -1,12 +1,9 @@
-import { useState } from 'react';
-import { AlertTriangle, Trash2, ShieldAlert } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import { api } from '../lib/api';
-import { useTeam } from '../contexts/TeamContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useLanguage } from '../contexts/LanguageContext';
 
 export default function AdminSettings() {
-    const { logout } = useTeam();
     const { addNotification } = useNotifications();
     const { t } = useLanguage();
 
@@ -103,6 +100,7 @@ export default function AdminSettings() {
                     </div>
                 </div>
             </div>
+
         </div>
     );
 }

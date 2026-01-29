@@ -179,6 +179,7 @@ const translations: Translations = {
     cancel: { pt: 'Cancelar', en: 'Cancel', sw: 'Ghairi' },
     save: { pt: 'Salvar', en: 'Save', sw: 'Hifadhi' },
     edit: { pt: 'Editar', en: 'Edit', sw: 'Hariri' },
+    delete: { pt: 'Excluir', en: 'Delete', sw: 'Futa' },
     actions: { pt: 'Ações', en: 'Actions', sw: 'Vitendo' },
     dateStatus: { pt: 'Data / Status', en: 'Date / Status', sw: 'Tarehe / Hali' },
     method: { pt: 'Método', en: 'Method', sw: 'Njia' },
@@ -304,7 +305,23 @@ const translations: Translations = {
     addPart: { pt: 'Adicionar peça...', en: 'Add part...', sw: 'Ongeza kipuri...' },
     stockLabel: { pt: 'Estoque:', en: 'Stock:', sw: 'Hesabu:' },
     devicePhoto: { pt: 'Foto do Aparelho', en: 'Device Photo', sw: 'Picha ya Kifaa' },
+    frontPhoto: { pt: 'Foto Frontal', en: 'Front Photo', sw: 'Picha ya Mbele' },
+    backPhoto: { pt: 'Foto Traseira', en: 'Back Photo', sw: 'Picha ya Nyuma' },
     start: { pt: 'Iniciar', en: 'Start', sw: 'Anza' },
+
+    // Permission System
+    pendingDecisions: { pt: 'Centro de Decisões', en: 'Decision Center', sw: 'Kituo cha Uamuzi' },
+    waitingYourAction: { pt: 'Aguardando sua autorização estratégica', en: 'Waiting your strategic authorization', sw: 'Inasubiri idhini yako ya kimkakati' },
+    requester: { pt: 'SOLICITANTE', en: 'REQUESTER', sw: 'MWOMBAJI' },
+    approve: { pt: 'Aprovar', en: 'Approve', sw: 'Kubali' },
+    reject: { pt: 'Rejeitar', en: 'Reject', sw: 'Kataa' },
+    newProduct: { pt: 'Novo Produto', en: 'New Product', sw: 'Bidhaa Mpya' },
+    requestSent: { pt: 'Solicitação enviada com sucesso! Ao admin aguarde um instante', en: 'Request sent successfully! Admin will review shortly', sw: 'Ombi limetumwa kwa mafanikio! Msimamizi atalikagua hivi karibuni' },
+    errorSendingRequest: { pt: 'Erro ao enviar solicitação', en: 'Error sending request', sw: 'Hitilafu kutuma ombi' },
+    requestApproved: { pt: 'Solicitação aprovada!', en: 'Request approved!', sw: 'Ombi limekubaliwa!' },
+    errorApproving: { pt: 'Erro ao aprovar solicitação', en: 'Error approving request', sw: 'Hitilafu kukubali ombi' },
+    requestRejected: { pt: 'Solicitação rejeitada', en: 'Request rejected', sw: 'Ombi limekataliwa' },
+    errorRejecting: { pt: 'Erro ao rejeitar solicitação', en: 'Error rejecting request', sw: 'Hitilafu kukataa ombi' },
 };
 
 interface LanguageContextType {

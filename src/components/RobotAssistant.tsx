@@ -87,6 +87,9 @@ export default function RobotAssistant() {
                 else alertMsg = "Status de serviço modificado. Atualizando painel...";
             } else if (type === 'transactions') {
                 alertMsg = "Movimentação financeira registrada. Calculando novo saldo...";
+            } else if (type === 'permission-requests') {
+                if (action === 'create') alertMsg = "Uma nova solicitação de autorização estratégica acaba de chegar.";
+                else alertMsg = "Uma solicitação de permissão foi processada.";
             } else {
                 alertMsg = t('robotModificationAlert').replace('{type}', type);
             }
@@ -124,7 +127,7 @@ export default function RobotAssistant() {
         <div className="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-[100] animate-in slide-in-from-right-10 duration-500">
             <div className="flex flex-col items-end gap-3 p-2">
                 {isBubbleVisible && (
-                    <div className="max-w-[200px] lg:max-w-[260px] bg-[#16222A]/98 backdrop-blur-2xl border border-[#FF4700]/30 rounded-2xl p-4 lg:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] pointer-events-auto relative mb-2 animate-in fade-in zoom-in slide-in-from-bottom-5 duration-300">
+                    <div className="max-w-[200px] lg:max-w-[260px] bg-[var(--bg-panel)] backdrop-blur-2xl border border-[#FF4700]/30 rounded-2xl p-4 lg:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] pointer-events-auto relative mb-2 animate-in fade-in zoom-in slide-in-from-bottom-5 duration-300">
                         <button
                             onClick={() => {
                                 setIsBubbleVisible(false);
@@ -137,7 +140,7 @@ export default function RobotAssistant() {
                                     return next;
                                 });
                             }}
-                            className="absolute top-4 right-4 p-1 text-white/20 hover:text-white transition-colors"
+                            className="absolute top-4 right-4 p-1 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
                         >
                             <X className="w-4 h-4" />
                         </button>
@@ -150,22 +153,22 @@ export default function RobotAssistant() {
                                 <p className="text-[9px] font-black text-[#FF4700] uppercase tracking-[0.25em]">{t('robotTitle')}</p>
                                 {isTyping ? (
                                     <div className="flex gap-1 py-1">
-                                        <div className="w-1 h-1 bg-white/40 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                                        <div className="w-1 h-1 bg-white/40 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                                        <div className="w-1 h-1 bg-white/40 rounded-full animate-bounce" />
+                                        <div className="w-1.5 h-1.5 bg-[var(--text-main)]/40 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                                        <div className="w-1.5 h-1.5 bg-[var(--text-main)]/40 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                                        <div className="w-1.5 h-1.5 bg-[var(--text-main)]/40 rounded-full animate-bounce" />
                                     </div>
                                 ) : (
-                                    <p className="text-[12px] font-bold text-white/95 leading-relaxed">
+                                    <p className="text-[12px] font-bold text-[var(--text-main)] leading-relaxed">
                                         {message}
                                     </p>
                                 )}
                             </div>
                         </div>
 
-                        <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between">
+                        <div className="mt-4 pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
-                                <span className="text-[8px] font-black text-white/40 uppercase tracking-widest">Caar Neural Bot</span>
+                                <span className="text-[8px] font-black text-[var(--text-muted)] uppercase tracking-widest">Caar Neural Bot</span>
                             </div>
                             <div className="flex items-center gap-1.5">
                                 {lowStockProducts.length > 0 && <Package className="w-3 h-3 text-orange-500/50" />}
@@ -173,7 +176,7 @@ export default function RobotAssistant() {
                             </div>
                         </div>
 
-                        <div className="absolute -bottom-2 right-12 w-4 h-4 bg-[#16222A] transform rotate-45 border-r border-b border-[#FF4700]/30" />
+                        <div className="absolute -bottom-2 right-12 w-4 h-4 bg-[var(--bg-panel)] transform rotate-45 border-r border-b border-[#FF4700]/30" />
                     </div>
                 )}
 

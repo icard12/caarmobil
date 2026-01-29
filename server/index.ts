@@ -26,14 +26,82 @@ const io = new Server(httpServer, {
 });
 const PORT = process.env.PORT || 3000;
 
+// Online users tracking
+const onlineUsers = new Map<string, { userId: string; userName: string; socketId: string; lastSeen: Date }>();
+
 // Socket.io connection handling
 io.on('connection', (socket) => {
     console.log('Client connected to real-time updates:', socket.id);
 
+    // User announces they are online
+    socket.on('user-online', (userData: { userId: string; userName: string }) => {
+        console.log(`[Presence] User ${userData.userName} is now ONLINE`);
+        onlineUsers.set(userData.userId, {
+            userId: userData.userId,
+            userName: userData.userName,
+            socketId: socket.id,
+            lastSeen: new Date()
+        });
+
+        // Broadcast updated online users list to all clients
+        io.emit('online-users-updated', Array.from(onlineUsers.values()).map(u => ({
+            userId: u.userId,
+            userName: u.userName,
+            lastSeen: u.lastSeen
+        })));
+    });
+
+    // User heartbeat to keep presence alive
+    socket.on('user-heartbeat', (userId: string) => {
+        const user = onlineUsers.get(userId);
+        if (user) {
+            user.lastSeen = new Date();
+        }
+    });
+
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
+
+        // Find and remove the user by socket ID
+        for (const [userId, userData] of onlineUsers.entries()) {
+            if (userData.socketId === socket.id) {
+                console.log(`[Presence] User ${userData.userName} is now OFFLINE`);
+                onlineUsers.delete(userId);
+
+                // Broadcast updated list
+                io.emit('online-users-updated', Array.from(onlineUsers.values()).map(u => ({
+                    userId: u.userId,
+                    userName: u.userName,
+                    lastSeen: u.lastSeen
+                })));
+                break;
+            }
+        }
     });
 });
+
+// Cleanup stale connections every 2 minutes
+setInterval(() => {
+    const now = new Date();
+    let changed = false;
+
+    for (const [userId, userData] of onlineUsers.entries()) {
+        const timeSinceLastSeen = now.getTime() - userData.lastSeen.getTime();
+        if (timeSinceLastSeen > 120000) { // 2 minutes
+            console.log(`[Presence] Removing stale user: ${userData.userName}`);
+            onlineUsers.delete(userId);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        io.emit('online-users-updated', Array.from(onlineUsers.values()).map(u => ({
+            userId: u.userId,
+            userName: u.userName,
+            lastSeen: u.lastSeen
+        })));
+    }
+}, 120000);
 
 // Helper for system logs
 async function createLog(userId: string, action: string, category: string, details: string) {
@@ -62,6 +130,23 @@ async function createLog(userId: string, action: string, category: string, detai
     } catch (error) {
         console.error('Error creating system log:', error);
     }
+}
+
+// Helper to check current financial balance
+async function getCurrentBalance(): Promise<number> {
+    const transactions = await prisma.transaction.findMany({
+        where: { status: 'paid' }
+    });
+
+    const income = transactions
+        .filter(t => t.type === 'income')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+    const expenses = transactions
+        .filter(t => t.type === 'expense')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+    return income - expenses;
 }
 
 // Ensure uploads directory exists
@@ -157,14 +242,40 @@ app.get('/api/products', async (req, res) => {
 app.post('/api/products', async (req, res) => {
     try {
         const creatorId = req.headers['x-user-id'] as string;
+        if (!creatorId) return res.status(401).json({ error: 'Usuário não identificado' });
+
+        const user = await prisma.user.findUnique({ where: { id: creatorId } });
+        if (user?.role !== 'admin') {
+            return res.status(403).json({ error: 'Somente administradores podem adicionar produtos diretamente' });
+        }
+
         const { name, price, costPrice, stock, ...rest } = req.body;
+        const stockQty = parseInt(stock) || 0;
+        const unitCost = parseFloat(costPrice) || 0;
+        const totalInvestment = stockQty * unitCost;
+
+        // Validation: No negative stock
+        if (stockQty < 0) {
+            return res.status(400).json({ error: 'O estoque inicial não pode ser negativo' });
+        }
+
+        // Validation: No negative balance (Investment check)
+        if (totalInvestment > 0) {
+            const currentBalance = await getCurrentBalance();
+            if (currentBalance < totalInvestment) {
+                return res.status(400).json({
+                    error: `Saldo insuficiente para investimento inicial. Saldo: MT ${currentBalance.toFixed(2)} | Necessário: MT ${totalInvestment.toFixed(2)}`
+                });
+            }
+        }
+
         const productData = {
             ...rest,
             name,
             price: parseFloat(price) || 0,
-            costPrice: parseFloat(costPrice) || 0,
-            stock: parseInt(stock) || 0,
-            status: parseInt(stock) > 0 ? 'active' : 'out_of_stock'
+            costPrice: unitCost,
+            stock: stockQty,
+            status: stockQty > 0 ? 'active' : 'out_of_stock'
         };
 
         const [product] = await prisma.$transaction(async (tx) => {
@@ -239,6 +350,13 @@ app.patch('/api/products/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const updaterId = req.headers['x-user-id'] as string;
+        if (!updaterId) return res.status(401).json({ error: 'Usuário não identificado' });
+
+        const user = await prisma.user.findUnique({ where: { id: updaterId } });
+        if (user?.role !== 'admin') {
+            return res.status(403).json({ error: 'Somente administradores podem editar produtos' });
+        }
+
         const { name, price, costPrice, stock, minStock, ...rest } = req.body;
 
         const result = await prisma.$transaction(async (tx) => {
@@ -249,6 +367,8 @@ app.patch('/api/products/:id', async (req, res) => {
             const newPrice = price !== undefined ? parseFloat(price) : currentProduct.price;
             const newCostPrice = costPrice !== undefined ? parseFloat(costPrice) : currentProduct.costPrice;
             const stockDiff = newStock - currentProduct.stock;
+
+            if (newStock < 0) throw new Error('O estoque não pode ser negativo');
 
             // 1. Update the product
             const updatedProduct = await tx.product.update({
@@ -317,9 +437,20 @@ app.patch('/api/products/:id', async (req, res) => {
 });
 
 app.post('/api/products/adjust-stock', async (req, res) => {
-    console.log('Stock adjustment request received:', JSON.stringify(req.body, null, 2));
     try {
+        const requesterId = req.headers['x-user-id'] as string;
         const { productId, userId, type, quantity, reason, isFinancial } = req.body;
+
+        if (!requesterId) return res.status(401).json({ error: 'Usuário não identificado' });
+        const requester = await prisma.user.findUnique({ where: { id: requesterId } });
+
+        // Block manual adjustments for non-admins
+        // Note: Quick Sell in frontend uses adjust-stock with type='exit'. 
+        // If the user wants NO changes, we should block this too or handle it carefully.
+        // For now, let's enforce admin for EVERYTHING in adjust-stock as requested.
+        if (requester?.role !== 'admin') {
+            return res.status(403).json({ error: 'Apenas administradores podem ajustar o estoque diretamente' });
+        }
 
         if (!productId || !userId || !type || quantity === undefined) {
             return res.status(400).json({ error: 'Campos obrigatórios ausentes' });
@@ -341,12 +472,20 @@ app.post('/api/products/adjust-stock', async (req, res) => {
 
             // 2. Block if trying to sell (exit) more than available
             if (type === 'exit' && product.stock < qty) {
-                throw new Error('Estoque insuficiente');
+                throw new Error(`Estoque insuficiente. Disponível: ${product.stock}`);
             }
 
             const adjustment = type === 'entry' ? qty : -qty;
             const totalValue = product.price * qty;
             const totalCost = (product.costPrice || 0) * qty;
+
+            // Check balance if it is a purchase (entry with financial record)
+            if (type === 'entry' && isFinancial && totalCost > 0) {
+                const currentBalance = await getCurrentBalance();
+                if (currentBalance < totalCost) {
+                    throw new Error(`Saldo insuficiente para compra de estoque. Saldo: MT ${currentBalance.toFixed(2)} | Necessário: MT ${totalCost.toFixed(2)}`);
+                }
+            }
 
             // 3. Update Product Stock
             const updatedProduct = await tx.product.update({
@@ -422,6 +561,15 @@ app.post('/api/products/adjust-stock', async (req, res) => {
 app.delete('/api/products', async (req, res) => {
     try {
         const { ids } = req.body; // Expecting { ids: ["id1", "id2"] }
+        const deleterId = req.headers['x-user-id'] as string;
+
+        if (!deleterId) return res.status(401).json({ error: 'Usuário não identificado' });
+
+        const user = await prisma.user.findUnique({ where: { id: deleterId } });
+        if (user?.role !== 'admin') {
+            return res.status(403).json({ error: 'Somente administradores podem excluir produtos' });
+        }
+
         if (!ids || !Array.isArray(ids)) {
             return res.status(400).json({ error: "Invalid IDs format" });
         }
@@ -441,6 +589,368 @@ app.delete('/api/products', async (req, res) => {
     }
 });
 
+// --- Permission Requests API ---
+app.get('/api/permission-requests', async (req, res) => {
+    try {
+        const userId = req.headers['x-user-id'] as string;
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+
+        // Admins see all pending requests, others see only their own
+        const where = user?.role === 'admin' ? {} : { userId };
+
+        const requests = await prisma.permissionRequest.findMany({
+            where,
+            include: {
+                user: { select: { name: true, role: true } }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(requests);
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao buscar solicitações' });
+    }
+});
+
+app.post('/api/permission-requests', async (req, res) => {
+    try {
+        const userId = req.headers['x-user-id'] as string;
+        const { type, details, targetId } = req.body;
+
+        if (!userId || !type || !details) {
+            return res.status(400).json({ error: 'Campos obrigatórios ausentes' });
+        }
+
+        const request = await prisma.permissionRequest.create({
+            data: {
+                userId,
+                type,
+                details: typeof details === 'string' ? details : JSON.stringify(details),
+                targetId,
+                status: 'pending'
+            }
+        });
+
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+
+        const labels: Record<string, string> = {
+            'CREATE_PRODUCT': 'Criação de Produto',
+            'UPDATE_PRODUCT': 'Edição de Produto',
+            'DELETE_PRODUCT': 'Exclusão de Produto',
+            'CREATE_SERVICE': 'Criação de Serviço',
+            'UPDATE_SERVICE': 'Edição de Serviço',
+            'DELETE_SERVICE': 'Exclusão de Serviço',
+            'UPDATE_SERVICE_STATUS': 'Alteração de Status de Serviço'
+        };
+
+        const actionLabel = labels[type] || type;
+        const detailsObj = typeof details === 'string' ? JSON.parse(details) : details;
+        const targetName = detailsObj.name || detailsObj.clientName || detailsObj.deviceModel || targetId || '---';
+
+        await createLog(
+            userId,
+            'PERMISSION_REQUEST',
+            'SYSTEM',
+            `Nova solicitação: ${actionLabel} - Destino: ${targetName} (Solicitante: ${user?.name})`
+        );
+
+        io.emit('new-permission-request', request);
+        io.emit('data-updated', { type: 'permission-requests', action: 'create' });
+        res.json(request);
+    } catch (error) {
+        console.error('Error creating permission request:', error);
+        res.status(500).json({ error: 'Erro ao criar solicitação' });
+    }
+});
+
+app.patch('/api/permission-requests/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body; // 'approved' or 'rejected'
+        const adminId = req.headers['x-user-id'] as string;
+
+        const admin = await prisma.user.findUnique({ where: { id: adminId } });
+        if (admin?.role !== 'admin') {
+            return res.status(403).json({ error: 'Apenas administradores podem aprovar solicitações' });
+        }
+
+        const request = await prisma.permissionRequest.findUnique({ where: { id } });
+        if (!request) return res.status(404).json({ error: 'Solicitação não encontrada' });
+
+        if (status === 'approved') {
+            const details = JSON.parse(request.details);
+
+            // Execute the requested action using a transaction for consistency
+            await prisma.$transaction(async (tx) => {
+                const productFields = ['name', 'category', 'price', 'costPrice', 'stock', 'minStock', 'image_url', 'status', 'isDeleted'];
+                const sanitizedDetails: any = {};
+                productFields.forEach(field => {
+                    if (details[field] !== undefined) sanitizedDetails[field] = details[field];
+                });
+
+                if (request.type === 'CREATE_PRODUCT') {
+                    const newProduct = await tx.product.create({ data: sanitizedDetails });
+
+                    // Side effect: Initial stock movement if > 0
+                    if (newProduct.stock > 0) {
+                        await tx.stockMovement.create({
+                            data: {
+                                productId: newProduct.id,
+                                userId: request.userId,
+                                type: 'entry',
+                                quantity: newProduct.stock,
+                                reason: 'Entrada Inicial (Solicitação Aprovada)',
+                            }
+                        });
+
+                        // Side effect: Financial record if costPrice > 0
+                        if (newProduct.costPrice > 0) {
+                            await tx.transaction.create({
+                                data: {
+                                    type: 'expense',
+                                    amount: newProduct.costPrice * newProduct.stock,
+                                    description: `Investimento: ${newProduct.name} (Aprovado)`,
+                                    category: 'Compra de Estoque',
+                                    status: 'paid',
+                                    date: new Date(),
+                                    dueDate: new Date()
+                                }
+                            });
+                        }
+                    }
+                } else if (request.type === 'UPDATE_PRODUCT' && request.targetId) {
+                    const oldProduct = await tx.product.findUnique({ where: { id: request.targetId } });
+                    if (oldProduct) {
+                        const updatedProduct = await tx.product.update({
+                            where: { id: request.targetId },
+                            data: sanitizedDetails
+                        });
+
+                        const stockDiff = (updatedProduct.stock || 0) - (oldProduct.stock || 0);
+                        if (stockDiff !== 0) {
+                            const qty = Math.abs(stockDiff);
+                            const type = stockDiff > 0 ? 'entry' : 'exit';
+                            const reason = details._reason || (type === 'entry' ? 'Ajuste Aprovado (+)' : 'Ajuste Aprovado (-)');
+
+                            await tx.stockMovement.create({
+                                data: {
+                                    productId: request.targetId,
+                                    userId: request.userId,
+                                    type,
+                                    quantity: qty,
+                                    reason,
+                                    date: new Date()
+                                }
+                            });
+
+                            // Side effect: Financial record for sales (exit) or purchases (entry if reason suggests)
+                            const isQuickSell = details._reason?.toLowerCase().includes('venda') || details._reason?.toLowerCase().includes('sell');
+                            if (type === 'exit' || isQuickSell) {
+                                await tx.transaction.create({
+                                    data: {
+                                        type: 'income',
+                                        amount: (updatedProduct.price || 0) * qty,
+                                        costAmount: (updatedProduct.costPrice || 0) * qty,
+                                        description: `Venda Aprovada: ${updatedProduct.name} (${qty} un)`,
+                                        category: 'Venda de Produto',
+                                        status: 'paid',
+                                        date: new Date(),
+                                        dueDate: new Date()
+                                    }
+                                });
+                            } else if (type === 'entry') {
+                                // For entries we might want to record investment
+                                await tx.transaction.create({
+                                    data: {
+                                        type: 'expense',
+                                        amount: (updatedProduct.costPrice || 0) * qty,
+                                        description: `Compra de Estoque Aprovada: ${updatedProduct.name} (${qty} un)`,
+                                        category: 'Compra de Estoque',
+                                        status: 'paid',
+                                        date: new Date(),
+                                        dueDate: new Date()
+                                    }
+                                });
+                            }
+                        }
+                    }
+                } else if (request.type === 'DELETE_PRODUCT' && request.targetId) {
+                    await tx.product.update({
+                        where: { id: request.targetId },
+                        data: { isDeleted: true }
+                    });
+                } else if (request.type === 'CREATE_SERVICE') {
+                    const { parts, price, clientName, deviceModel, ...serviceData } = sanitizedDetails;
+
+                    // 1. Calculate parts total cost
+                    let totalPartsCost = 0;
+                    const servicePartsData = [];
+
+                    if (parts && Array.isArray(parts)) {
+                        for (const part of parts) {
+                            const product = await tx.product.findUnique({ where: { id: part.productId } });
+                            if (!product) throw new Error(`Produto não encontrado: ${part.productId}`);
+                            if (product.stock < part.quantity) throw new Error(`Estoque insuficiente para: ${product.name}`);
+
+                            // Deduct stock
+                            await tx.product.update({
+                                where: { id: part.productId },
+                                data: { stock: { decrement: part.quantity } }
+                            });
+
+                            // Create stock movement
+                            await tx.stockMovement.create({
+                                data: {
+                                    productId: part.productId,
+                                    userId: request.userId,
+                                    type: 'exit',
+                                    quantity: part.quantity,
+                                    reason: `Uso em Serviço: ${deviceModel} (${clientName})`
+                                }
+                            });
+
+                            totalPartsCost += (product.costPrice * part.quantity);
+                            servicePartsData.push({
+                                productId: part.productId,
+                                quantity: part.quantity,
+                                unitPrice: product.price,
+                                unitCost: product.costPrice
+                            });
+                        }
+                    }
+
+                    // 2. Create Service Order
+                    const serviceOrder = await tx.serviceOrder.create({
+                        data: {
+                            ...serviceData,
+                            clientName,
+                            deviceModel,
+                            price: parseFloat(price),
+                            cost: totalPartsCost,
+                            status: 'pending',
+                            parts: {
+                                create: servicePartsData
+                            }
+                        }
+                    });
+
+                    // 3. Create automatic financial transaction
+                    if (serviceOrder.price > 0) {
+                        await tx.transaction.create({
+                            data: {
+                                type: 'income',
+                                amount: serviceOrder.price,
+                                costAmount: totalPartsCost,
+                                description: `Serviço: ${serviceOrder.deviceModel} - ${serviceOrder.clientName} (Aprovado)`,
+                                clientName: serviceOrder.clientName,
+                                category: 'Serviço de Reparo',
+                                status: 'pending',
+                                date: new Date(),
+                                dueDate: new Date()
+                            }
+                        });
+                    }
+                } else if (request.type === 'UPDATE_SERVICE' && request.targetId) {
+                    await tx.serviceOrder.update({
+                        where: { id: request.targetId },
+                        data: sanitizedDetails
+                    });
+                } else if (request.type === 'DELETE_SERVICE' && request.targetId) {
+                    // Delete related parts first
+                    await tx.servicePart.deleteMany({
+                        where: { serviceOrderId: request.targetId }
+                    });
+                    // Delete the service order
+                    await tx.serviceOrder.delete({
+                        where: { id: request.targetId }
+                    });
+                } else if (request.type === 'UPDATE_SERVICE_STATUS' && request.targetId) {
+                    const { status } = sanitizedDetails;
+                    const service = await tx.serviceOrder.update({
+                        where: { id: request.targetId },
+                        data: {
+                            status,
+                            delivered_at: status === 'delivered' ? new Date() : undefined
+                        }
+                    });
+
+                    if (status === 'delivered') {
+                        await tx.transaction.updateMany({
+                            where: {
+                                description: { contains: `${service.deviceModel} - ${service.clientName}` },
+                                category: 'Serviço de Reparo',
+                                status: 'pending'
+                            },
+                            data: {
+                                status: 'paid',
+                                date: new Date()
+                            }
+                        });
+                    }
+                }
+            });
+
+            const labels: Record<string, string> = {
+                'CREATE_PRODUCT': 'Criação de Produto',
+                'UPDATE_PRODUCT': 'Edição de Produto',
+                'DELETE_PRODUCT': 'Exclusão de Produto',
+                'CREATE_SERVICE': 'Criação de Serviço',
+                'UPDATE_SERVICE': 'Edição de Serviço',
+                'DELETE_SERVICE': 'Exclusão de Serviço',
+                'UPDATE_SERVICE_STATUS': 'Alteração de Status de Serviço'
+            };
+
+            const actionLabel = labels[request.type] || request.type;
+            const targetName = details.name || details.clientName || details.deviceModel || request.targetId || '---';
+            const requester = await prisma.user.findUnique({ where: { id: request.userId } });
+
+            await createLog(
+                adminId,
+                'PERMISSION_APPROVED',
+                'SYSTEM',
+                `APROVOU: ${actionLabel} - Destino: ${targetName} (Solicitante: ${requester?.name})`
+            );
+        } else {
+            const labels: Record<string, string> = {
+                'CREATE_PRODUCT': 'Criação de Produto',
+                'UPDATE_PRODUCT': 'Edição de Produto',
+                'DELETE_PRODUCT': 'Exclusão de Produto',
+                'CREATE_SERVICE': 'Criação de Serviço',
+                'UPDATE_SERVICE': 'Edição de Serviço',
+                'DELETE_SERVICE': 'Exclusão de Serviço',
+                'UPDATE_SERVICE_STATUS': 'Alteração de Status de Serviço'
+            };
+
+            const actionLabel = labels[request.type] || request.type;
+            const targetName = details.name || details.clientName || details.deviceModel || request.targetId || '---';
+            const requester = await prisma.user.findUnique({ where: { id: request.userId } });
+
+            await createLog(
+                adminId,
+                'PERMISSION_REJECTED',
+                'SYSTEM',
+                `REJEITOU: ${actionLabel} - Destino: ${targetName} (Solicitante: ${requester?.name})`
+            );
+        }
+
+        const updatedRequest = await prisma.permissionRequest.update({
+            where: { id },
+            data: { status }
+        });
+
+        invalidateAnalyticsCache();
+        io.emit('permission-request-updated', updatedRequest);
+        io.emit('data-updated', { type: 'permission-requests', action: 'update' });
+        io.emit('data-updated', { type: 'products', action: 'update' });
+        io.emit('data-updated', { type: 'services', action: 'update' });
+        io.emit('data-updated', { type: 'transactions', action: 'update' });
+
+        res.json(updatedRequest);
+    } catch (error) {
+        console.error('Error updating permission request:', error);
+        res.status(500).json({ error: 'Erro ao processar solicitação' });
+    }
+});
+
 // --- Transactions API ---
 app.get('/api/transactions', async (req, res) => {
     try {
@@ -457,10 +967,21 @@ app.get('/api/transactions', async (req, res) => {
 app.post('/api/transactions', async (req, res) => {
     try {
         const { amount, date, dueDate, ...rest } = req.body;
+        const transactionAmount = parseFloat(amount);
+
+        if (rest.type === 'expense') {
+            const currentBalance = await getCurrentBalance();
+            if (currentBalance < transactionAmount) {
+                return res.status(400).json({
+                    error: `Saldo insuficiente para esta despesa. Saldo: MT ${currentBalance.toFixed(2)} | Valor: MT ${transactionAmount.toFixed(2)}`
+                });
+            }
+        }
+
         const transaction = await prisma.transaction.create({
             data: {
                 ...rest,
-                amount: parseFloat(amount),
+                amount: transactionAmount,
                 clientName: rest.clientName || null,
                 date: date ? new Date(date) : new Date(),
                 dueDate: dueDate ? new Date(dueDate) : new Date()
@@ -482,6 +1003,12 @@ app.post('/api/transactions', async (req, res) => {
 
 app.delete('/api/transactions/:id', async (req, res) => {
     try {
+        const requesterId = req.headers['x-user-id'] as string;
+        const requester = await prisma.user.findUnique({ where: { id: requesterId || '' } });
+        if (requester?.role !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado: Somente administradores podem remover transações financeiras' });
+        }
+
         const { id } = req.params;
         const transaction = await prisma.transaction.findUnique({ where: { id } });
 
@@ -525,6 +1052,12 @@ app.get('/api/petty-cash', async (req, res) => {
 
 app.post('/api/petty-cash', async (req, res) => {
     try {
+        const requesterId = req.headers['x-user-id'] as string;
+        const requester = await prisma.user.findUnique({ where: { id: requesterId || '' } });
+        if (requester?.role !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado: Somente administradores podem operar o caixa interno' });
+        }
+
         const { type, amount, description } = req.body;
         const transaction = await prisma.pettyCash.create({
             data: {
@@ -599,6 +1132,8 @@ app.get('/api/services', async (req, res) => {
             status: s.status,
             price: s.price,
             imageUrl: s.imageUrl,
+            frontImageUrl: s.frontImageUrl,
+            backImageUrl: s.backImageUrl,
             createdAt: s.created_at.toISOString(),
             deliveredAt: s.delivered_at ? s.delivered_at.toISOString() : null
         }));
@@ -615,7 +1150,7 @@ app.get('/api/services', async (req, res) => {
 
 app.post('/api/services', async (req, res) => {
     try {
-        const { clientName, clientPhone, deviceModel, description, status, price, imageUrl, parts } = req.body;
+        const { clientName, clientPhone, deviceModel, description, status, price, imageUrl, frontImageUrl, backImageUrl, parts } = req.body;
         const creatorId = req.headers['x-user-id'] as string;
 
         const result = await prisma.$transaction(async (tx) => {
@@ -666,32 +1201,36 @@ app.post('/api/services', async (req, res) => {
             }
 
             // 2. Create Service Order
-            const service = await tx.serviceOrder.create({
+            const serviceOrder = await tx.serviceOrder.create({
                 data: {
                     clientName,
                     clientPhone,
                     deviceModel,
                     description,
                     status,
-                    price: parseFloat(price) || 0,
-                    cost: totalPartsCost,
+                    price: parseFloat(price),
                     imageUrl,
+                    frontImageUrl,
+                    backImageUrl,
+                    cost: totalPartsCost,
                     parts: {
                         create: servicePartsData
                     }
                 },
-                include: { parts: true }
+                include: {
+                    parts: true
+                }
             });
 
             // 3. Create automatic financial transaction
-            if (service.price > 0) {
+            if (serviceOrder.price > 0) {
                 await tx.transaction.create({
                     data: {
                         type: 'income',
-                        amount: service.price,
+                        amount: serviceOrder.price,
                         costAmount: totalPartsCost,
-                        description: `Serviço: ${service.deviceModel} - ${service.clientName}`,
-                        clientName: service.clientName,
+                        description: `Serviço: ${serviceOrder.deviceModel} - ${serviceOrder.clientName}`,
+                        clientName: serviceOrder.clientName,
                         category: 'Serviço de Reparo',
                         status: status === 'delivered' ? 'paid' : 'pending',
                         date: new Date(),
@@ -700,7 +1239,7 @@ app.post('/api/services', async (req, res) => {
                 });
             }
 
-            return service;
+            return serviceOrder;
         });
 
         // Create log
@@ -723,16 +1262,24 @@ app.post('/api/services', async (req, res) => {
     }
 });
 
-// Update service status
+// Update service order
 app.patch('/api/services/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const { status, clientName, clientPhone, deviceModel, description, price, imageUrl, frontImageUrl, backImageUrl } = req.body;
 
         const service = await prisma.serviceOrder.update({
             where: { id },
             data: {
                 status,
+                clientName,
+                clientPhone,
+                deviceModel,
+                description,
+                price: price !== undefined ? parseFloat(price) : undefined,
+                imageUrl,
+                frontImageUrl,
+                backImageUrl,
                 delivered_at: status === 'delivered' ? new Date() : undefined
             }
         });
@@ -768,6 +1315,57 @@ app.patch('/api/services/:id', async (req, res) => {
     } catch (error) {
         console.error('Error updating service:', error);
         res.status(500).json({ error: 'Erro ao atualizar serviço' });
+    }
+});
+
+// Delete service order (Admin only)
+app.delete('/api/services/:id', async (req, res) => {
+    try {
+        const requesterId = req.headers['x-user-id'] as string;
+        const requester = await prisma.user.findUnique({ where: { id: requesterId || '' } });
+
+        if (requester?.role !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado: Somente administradores podem excluir serviços' });
+        }
+
+        const { id } = req.params;
+        const service = await prisma.serviceOrder.findUnique({
+            where: { id },
+            include: { parts: true }
+        });
+
+        if (!service) {
+            return res.status(404).json({ error: 'Serviço não encontrado' });
+        }
+
+        // We use a transaction because we need to perform multiple deletes
+        await prisma.$transaction(async (tx) => {
+            // Delete related parts first
+            await tx.servicePart.deleteMany({
+                where: { serviceOrderId: id }
+            });
+
+            // Delete the service order
+            await tx.serviceOrder.delete({
+                where: { id }
+            });
+        });
+
+        if (requesterId) {
+            await createLog(
+                requesterId,
+                'SERVICE_DELETE',
+                'SERVICES',
+                `Excluiu serviço: ${service.deviceModel} para ${service.clientName}`
+            );
+        }
+
+        invalidateAnalyticsCache();
+        io.emit('data-updated', { type: 'services', action: 'delete' });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting service:', error);
+        res.status(500).json({ error: 'Erro ao excluir serviço' });
     }
 });
 
@@ -910,8 +1508,12 @@ app.post('/api/login', async (req, res) => {
             where: { email }
         });
 
-        if (!user || !await bcrypt.compare(password, user.password)) {
+        if (!user || user.isDeleted || !await bcrypt.compare(password, user.password)) {
             return res.status(401).json({ error: 'Credenciais inválidas' });
+        }
+
+        if (!user.isActive) {
+            return res.status(401).json({ error: 'Sua conta está desativada. Contacte o administrador.' });
         }
 
         const { password: _, ...userWithoutPassword } = user;
@@ -952,6 +1554,7 @@ app.get('/api/users', async (req, res) => {
         }
 
         const users = await prisma.user.findMany({
+            where: { isDeleted: false },
             orderBy: { createdAt: 'desc' },
             select: {
                 id: true,
@@ -970,6 +1573,12 @@ app.get('/api/users', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
     try {
+        const requesterId = req.headers['x-user-id'] as string;
+        const requester = await prisma.user.findUnique({ where: { id: requesterId || '' } });
+        if (requester?.role !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado: Somente administradores podem criar usuários' });
+        }
+
         const { password, ...userData } = req.body;
         const hashedPassword = await bcrypt.hash(password, 10);
         const user = await prisma.user.create({
@@ -987,16 +1596,25 @@ app.post('/api/users', async (req, res) => {
 
 app.delete('/api/users/:id', async (req, res) => {
     try {
+        const requesterId = req.headers['x-user-id'] as string;
+        const requester = await prisma.user.findUnique({ where: { id: requesterId || '' } });
+        if (requester?.role !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado: Somente administradores podem remover usuários' });
+        }
+
         const { id } = req.params;
         const user = await prisma.user.findUnique({ where: { id } });
-        await prisma.user.delete({
-            where: { id }
+
+        if (!user) {
+            return res.status(404).json({ error: 'Usuário não encontrado' });
+        }
+
+        await prisma.user.update({
+            where: { id },
+            data: { isDeleted: true, isActive: false }
         });
 
-        const deleterId = req.headers['x-user-id'] as string;
-        if (deleterId && user) {
-            await createLog(deleterId, 'USER_DELETE', 'AUTH', `Removeu o usuário: ${user.name}`);
-        }
+        await createLog(requesterId, 'USER_DELETE', 'AUTH', `Marcou o usuário como deletado: ${user.name}`);
 
         res.json({ success: true });
     } catch (error) {
@@ -1006,7 +1624,15 @@ app.delete('/api/users/:id', async (req, res) => {
 
 app.put('/api/users/:id', async (req, res) => {
     try {
+        const requesterId = req.headers['x-user-id'] as string;
+        const requester = await prisma.user.findUnique({ where: { id: requesterId || '' } });
+
         const { id } = req.params;
+        // Allow user to update their own profile OR admin update anyone
+        if (requester?.role !== 'admin' && requesterId !== id) {
+            return res.status(403).json({ error: 'Acesso negado: Você só pode atualizar seu próprio perfil' });
+        }
+
         const { password, ...updateData } = req.body;
 
         if (password) {

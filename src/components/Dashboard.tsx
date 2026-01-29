@@ -1,13 +1,15 @@
-import { ChevronRight, ShoppingBag, Terminal, DollarSign, History, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
+import { ChevronRight, ShoppingBag, Terminal, DollarSign, History, TrendingUp, TrendingDown, AlertTriangle, Check, X, Clock } from 'lucide-react';
 import logo from '../assets/logo.png';
 import DataTable, { TableColumn } from './dashboard/DataTable';
 import { Product } from '../lib/supabase';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useTransactions } from '../contexts/TransactionContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useTeam } from '../contexts/TeamContext';
 import ProductBadge from './ui/ProductBadge';
 import InventorySummary from './dashboard/InventorySummary';
 import { motion } from 'framer-motion';
+import { api } from '../lib/api';
 
 const container = {
   hidden: { opacity: 0 },
@@ -45,20 +47,63 @@ export default function Dashboard({ searchQuery = '' }: DashboardProps) {
     stats,
     products,
     analyticsSummary,
+    pendingRequests,
     loading,
-    recentTransactions
+    recentTransactions,
+    refreshData,
+    updatePermissionRequestStatus
   } = useTransactions();
   const { addNotification } = useNotifications();
   const { t, locale, smartTranslate } = useLanguage();
+  const { currentUser } = useTeam();
+  const isAdmin = currentUser?.role === 'admin';
 
 
   const handleBulkDelete = async (ids: string[]) => {
     if (!confirm(t('deleteConfirm').replace('{count}', ids.length.toString()))) return;
+
+    if (!isAdmin) {
+      try {
+        for (const id of ids) {
+          await api.permissionRequests.create({
+            type: 'DELETE_PRODUCT',
+            details: JSON.stringify({ id }),
+            targetId: id
+          });
+        }
+        addNotification(t('requestSent') || 'Solicitação enviada ao administrador', 'info');
+        return;
+      } catch (error) {
+        addNotification(t('errorSendingRequest') || 'Erro ao enviar solicitação', 'error');
+        return;
+      }
+    }
+
     try {
+      await api.products.delete(ids);
       addNotification(t('itemsRemoved').replace('{count}', ids.length.toString()), 'success');
+      await refreshData();
     } catch (error) {
       console.error('Error deleting products:', error);
       addNotification(t('errorRemovingItems'), 'error');
+    }
+  };
+
+  const handleApproveRequest = async (id: string) => {
+    try {
+      await updatePermissionRequestStatus(id, 'approved');
+      addNotification(t('requestApproved') || 'Solicitação aprovada!', 'success');
+    } catch (error) {
+      addNotification(t('errorApproving') || 'Erro ao aprovar solicitação', 'error');
+    }
+  };
+
+  const handleRejectRequest = async (id: string) => {
+    try {
+      await updatePermissionRequestStatus(id, 'rejected');
+      addNotification(t('requestRejected') || 'Solicitação rejeitada', 'info');
+    } catch (error) {
+      addNotification(t('errorRejecting') || 'Erro ao rejeitar solicitação', 'error');
     }
   };
 
@@ -143,6 +188,61 @@ export default function Dashboard({ searchQuery = '' }: DashboardProps) {
           </button>
         </div>
       </div>
+
+      {isAdmin && pendingRequests.length > 0 && (
+        <div className="bg-[#16222A]/95 backdrop-blur-md border border-[#FF4700]/30 rounded-3xl p-6 mb-8 animate-slide-up shadow-2xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-[#FF4700]/5 rounded-full blur-3xl pointer-events-none -mr-32 -mt-32 group-hover:bg-[#FF4700]/10 transition-all duration-700" />
+
+          <div className="flex items-center gap-3 mb-6 relative z-10">
+            <div className="p-2.5 bg-[#FF4700] rounded-xl text-white shadow-glow-orange animate-pulse">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-white uppercase tracking-tight">{t('pendingDecisions') || 'Centro de Decisões'} ({pendingRequests.length})</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('waitingYourAction') || 'Aguardando sua autorização estratégica'}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 relative z-10">
+            {pendingRequests.map(req => {
+              const details = typeof req.details === 'string' ? JSON.parse(req.details) : req.details;
+              return (
+                <div key={req.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col justify-between hover:border-[#FF4700]/30 transition-all group/card">
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${req.type === 'CREATE_PRODUCT' ? 'bg-emerald-500/20 text-emerald-400' :
+                        req.type === 'DELETE_PRODUCT' ? 'bg-rose-500/20 text-rose-400' : 'bg-blue-500/20 text-blue-400'
+                        }`}>
+                        {req.type === 'CREATE_PRODUCT' ? t('newProduct') : req.type === 'UPDATE_PRODUCT' ? t('edit') : t('delete')}
+                      </span>
+                      <span className="text-[9px] font-bold text-slate-500">{new Date(req.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-sm font-black text-white mb-1 truncate">{details.name || details.description || (req.targetId ? `ID: ${req.targetId.split('-')[0]}` : '---')}</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                      {t('requester') || 'SOLICITANTE'}: <span className="text-[#FF4700]">{req.user?.name || '---'}</span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-5">
+                    <button
+                      onClick={() => handleApproveRequest(req.id)}
+                      className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1 shadow-lg shadow-emerald-500/20"
+                    >
+                      <Check className="w-3 h-3" /> {t('approve') || 'Aprovar'}
+                    </button>
+                    <button
+                      onClick={() => handleRejectRequest(req.id)}
+                      className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1"
+                    >
+                      <X className="w-3 h-3" /> {t('reject') || 'Rejeitar'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {stats && stats.lowStockProducts > 0 && (
         <motion.div
