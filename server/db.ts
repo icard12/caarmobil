@@ -5,12 +5,10 @@ import dotenv from 'dotenv';
 
 const projectRoot = process.cwd();
 
-// Load .env only for local development
-if (!(process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production')) {
-    const envPath = path.join(projectRoot, '.env');
-    if (fs.existsSync(envPath)) {
-        dotenv.config({ path: envPath });
-    }
+// Load .env explicitly if it exists (Ensures local dev works even if NODE_ENV is odd)
+const envPath = path.join(projectRoot, '.env');
+if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
 }
 
 let databaseUrl = process.env.DATABASE_URL;
@@ -48,7 +46,7 @@ if (databaseUrl && !databaseUrl.includes('sslmode=') && (process.env.RAILWAY_ENV
 if (!databaseUrl && (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production')) {
     console.error('❌ [DB-Config] CRITICAL: No DATABASE_URL found! Please add PostgreSQL in Railway.');
     console.warn('[DB-Config] Using dummy URL to keep server alive (DB features will fail).');
-    databaseUrl = "postgresql://user:pass@localhost:5432/db_not_configured";
+    databaseUrl = "postgresql://MISSING_DATABASE_URL_IN_RAILWAY_SETTINGS:5432/configure_me";
 }
 
 // 6. Update global env

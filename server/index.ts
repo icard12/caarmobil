@@ -160,6 +160,11 @@ async function initializeDatabase(attempt = 1) {
         }
     } catch (error: any) {
         console.error(`❌ [DB-Init] Connection failed (Attempt ${attempt}):`, error.message);
+
+        if (error.message.includes('MISSING_DATABASE_URL') || error.message.includes('localhost:5432')) {
+            console.error('💡 TIP: It looks like DATABASE_URL is missing in your Railway settings. Please add the PostgreSQL plugin!');
+        }
+
         setTimeout(() => initializeDatabase(attempt + 1), 5000);
     }
 }
