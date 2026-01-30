@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "server": "tsx --watch server/index.ts",
     "server:build": "esbuild server/index.ts --bundle --platform=node --target=node20 --outfile=dist-server/index.cjs --external:prisma --external:@prisma/client --external:fsevents",
-    "start": "npx prisma db push --accept-data-loss && node dist-server/index.cjs",
+    "start": "node dist-server/index.cjs",
     "mobile:sync": "npm run build && npx cap sync",
     "mobile:open:android": "npx cap open android",
     "mobile:open:ios": "npx cap open ios",
