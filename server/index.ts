@@ -21,26 +21,51 @@ const HOST = '0.0.0.0';
 
 console.log(`[Startup] Initializing server on ${HOST}:${PORT}...`);
 
-const app = express();
-
-// --- CRITICAL: Healthcheck at the very top ---
-app.get('/api/status', (req, res) => {
-    res.status(200).json({
-        status: 'online',
-        version: '1.0.1',
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development'
-    });
-});
-
-const httpServer = createServer(app);
-
 // Platform Detection
 const isRailway = !!process.env.RAILWAY_ENVIRONMENT;
 const isRender = !!process.env.RENDER;
 const platformName = isRailway ? 'Railway' : (isRender ? 'Render' : 'Local/Other');
 
 console.log(`[Platform] Running on: ${platformName}`);
+
+const app = express();
+
+// --- CRITICAL: Healthcheck at the very top ---
+app.get('/api/status', (req, res) => {
+    res.status(200).json({
+        status: 'online',
+        version: '1.0.2',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
+    });
+});
+
+app.get('/api/diagnostics', async (req, res) => {
+    const diagnostics: any = {
+        platform: platformName,
+        node_env: process.env.NODE_ENV,
+        database: {
+            url_present: !!process.env.DATABASE_URL,
+            url_length: process.env.DATABASE_URL?.length || 0,
+            provider: process.env.DATABASE_URL?.startsWith('postgresql') ? 'postgresql' : (process.env.DATABASE_URL?.startsWith('file') ? 'sqlite' : 'unknown')
+        }
+    };
+
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        diagnostics.database.connection = 'connected';
+    } catch (e: any) {
+        diagnostics.database.connection = 'failed';
+        diagnostics.database.error = e.message;
+    }
+
+    res.json(diagnostics);
+});
+
+
+
+const httpServer = createServer(app);
+
 const io = new Server(httpServer, {
     cors: {
         origin: "*",
@@ -1739,8 +1764,19 @@ app.post('/api/login', async (req, res) => {
             where: { email }
         });
 
-        if (!user || user.isDeleted || !await bcrypt.compare(password, user.password)) {
-            return res.status(401).json({ error: 'Credenciais inválidas' });
+        if (!user) {
+            console.warn(`[Login] Attempt failed: User ${email} not found.`);
+            return res.status(401).json({ error: 'Usuário não encontrado no banco de dados.' });
+        }
+
+        if (user.isDeleted) {
+            return res.status(401).json({ error: 'Esta conta foi excluída.' });
+        }
+
+        const isPasswordCorrect = await bcrypt.compare(password, user.password);
+        if (!isPasswordCorrect) {
+            console.warn(`[Login] Attempt failed: Incorrect password for ${email}.`);
+            return res.status(401).json({ error: 'Senha incorreta.' });
         }
 
         if (!user.isActive) {
