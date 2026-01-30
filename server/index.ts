@@ -16,7 +16,23 @@ import { analyzeProducts, getAnalyticsSummary, invalidateAnalyticsCache } from '
 
 const _projectRoot = process.cwd();
 
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+
+console.log(`[Startup] Initializing server on ${HOST}:${PORT}...`);
+
 const app = express();
+
+// --- CRITICAL: Healthcheck at the very top ---
+app.get('/api/status', (req, res) => {
+    res.status(200).json({
+        status: 'online',
+        version: '1.0.1',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
+    });
+});
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
@@ -24,8 +40,6 @@ const io = new Server(httpServer, {
         methods: ["GET", "POST"]
     }
 });
-const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0'; // Essential for many cloud providers
 
 // Online users tracking
 const onlineUsers = new Map<string, { userId: string; userName: string; socketId: string; lastSeen: Date }>();
@@ -205,11 +219,8 @@ app.post('/api/test-ping', (req, res) => {
     res.json({ success: true, received: req.body });
 });
 
-// --- Status API ---
-app.get('/api/status', (req, res) => {
-    console.log(`[Healthcheck] Status check received from ${req.ip}`);
-    res.json({ status: 'online', version: '1.0.1', timestamp: new Date() });
-});
+// Redundant status for legacy path
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // --- Upload API ---
 app.post('/api/upload', upload.single('file'), (req, res) => {
@@ -2249,14 +2260,29 @@ app.get('*', (req, res, next) => {
 });
 
 // Start Server
-const server = httpServer.listen(Number(PORT), HOST, async () => {
-    console.log(`🚀 Server is UP and running!`);
+const server = httpServer.listen(Number(PORT), HOST, () => {
+    console.log(`🚀 SERVER IS LIVE!`);
     console.log(`📍 URL: http://${HOST}:${PORT}`);
-    console.log(`📂 Healthcheck: http://${HOST}:${PORT}/api/status`);
-    console.log(`🏠 Mode: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🏢 Platform: ${process.env.RAILWAY_ENVIRONMENT ? "Railway" : (process.env.RENDER ? "Render" : "Other")}`);
+    console.log(`🏠 Mode: ${process.env.NODE_ENV || 'production'}`);
 
-    await checkDatabaseHealth();
+    // Run database health check and sync in background
+    setTimeout(async () => {
+        await checkDatabaseHealth();
+
+        // If we are in production and it's a fresh deploy, try a push in background
+        if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER) {
+            console.log('[Database] Running background schema sync...');
+            try {
+                const { exec } = await import('child_process');
+                exec('npx prisma db push --accept-data-loss', (err, stdout, stderr) => {
+                    if (err) console.error('[Database] Background sync error:', err.message);
+                    else console.log('[Database] Background sync complete.');
+                });
+            } catch (e) {
+                console.error('[Database] Failed to trigger background sync.');
+            }
+        }
+    }, 1000);
 
     // Ensure default admin exists
     try {
