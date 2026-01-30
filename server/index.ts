@@ -34,6 +34,13 @@ app.get('/api/status', (req, res) => {
 });
 
 const httpServer = createServer(app);
+
+// Platform Detection
+const isRailway = !!process.env.RAILWAY_ENVIRONMENT;
+const isRender = !!process.env.RENDER;
+const platformName = isRailway ? 'Railway' : (isRender ? 'Render' : 'Local/Other');
+
+console.log(`[Platform] Running on: ${platformName}`);
 const io = new Server(httpServer, {
     cors: {
         origin: "*",
