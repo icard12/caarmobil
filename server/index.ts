@@ -2296,27 +2296,40 @@ const server = httpServer.listen(Number(PORT), HOST, async () => {
         }
     }, 1000);
 
-    // Ensure default admin exists
-    try {
-        const adminExists = await prisma.user.findFirst({
-            where: { role: 'admin' }
-        });
-        if (!adminExists) {
-            const hashedPassword = await bcrypt.hash('admin', 10);
-            await prisma.user.create({
-                data: {
-                    name: 'Administrador',
-                    email: 'caarmobilei@gmail.com',
-                    password: hashedPassword,
-                    role: 'admin',
-                    avatar: ''
+    // Ensure default admin exists (Retry loop)
+    const setupAdmin = async (retries = 5) => {
+        for (let i = 0; i < retries; i++) {
+            try {
+                const adminExists = await prisma.user.findFirst({
+                    where: { role: 'admin' }
+                });
+                if (!adminExists) {
+                    const hashedPassword = await bcrypt.hash('admin', 10);
+                    await prisma.user.create({
+                        data: {
+                            name: 'Administrador',
+                            email: 'caarmobilei@gmail.com',
+                            password: hashedPassword,
+                            role: 'admin',
+                            avatar: '',
+                            isActive: true
+                        }
+                    });
+                    console.log('✅ Default admin created successfully on attempt ' + (i + 1));
+                } else {
+                    console.log('✅ Admin already exists.');
                 }
-            });
-            console.log('Default admin created: caarmobilei@gmail.com / admin');
+                return; // Success
+            } catch (error) {
+                console.warn(`[Setup] Admin check attempt ${i + 1} failed. Database might not be ready yet.`);
+                await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds before retry
+            }
         }
-    } catch (error) {
-        console.error('Error creating default admin:', error);
-    }
+        console.error('❌ Failed to ensure default admin after multiple attempts.');
+    };
+
+    // Run setup in background
+    setTimeout(() => setupAdmin(), 2000);
 });
 
 server.on('error', (e: any) => {
