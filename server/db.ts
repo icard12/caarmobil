@@ -15,14 +15,19 @@ if (!(process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production'))
 
 let databaseUrl = process.env.DATABASE_URL;
 
-// Reconstruct URL if missing but individual PG vars exist (Common in Railway)
+// 1. Reconstruct URL if missing (Common in Railway/Render)
 if (!databaseUrl && process.env.PGHOST) {
     databaseUrl = `postgresql://${process.env.PGUSER || 'postgres'}:${process.env.PGPASSWORD}@${process.env.PGHOST}:${process.env.PGPORT || '5432'}/${process.env.PGDATABASE}`;
 }
 
-// Ensure SSL for Production
+// 2. Force SSL for Production (Ensures handshakes work)
 if (databaseUrl && !databaseUrl.includes('sslmode=') && (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production')) {
     databaseUrl += databaseUrl.includes('?') ? '&sslmode=no-verify' : '?sslmode=no-verify';
+}
+
+// 3. IMPORTANT: Update global env so background tasks (like db push) use the SAME fixed URL
+if (databaseUrl) {
+    process.env.DATABASE_URL = databaseUrl;
 }
 
 export const prisma = new PrismaClient({
