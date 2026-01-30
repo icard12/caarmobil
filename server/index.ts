@@ -114,15 +114,19 @@ async function initializeDatabase(attempt = 1) {
 
         // Now that we are connected, ensure tables and admin exist
         if (isRailway || isRender) {
-            console.log('[DB-Init] Verifying schema...');
+            console.log('[DB-Init] Verifying/Pushing schema to PostgreSQL...');
             import('child_process').then(({ exec }) => {
-                exec('npx prisma db push --accept-data-loss', (err, stdout, stderr) => {
+                // Pass process.env explicitly to ensure DATABASE_URL (with SSL fix) is used
+                exec('npx prisma db push --accept-data-loss', { env: process.env }, (err, stdout, stderr) => {
+                    if (stdout) console.log(`[Prisma-Success] ${stdout}`);
+                    if (stderr) console.error(`[Prisma-Error-Logs] ${stderr}`);
+
                     if (err) {
-                        console.error(`[DB-Init] Schema sync failed: ${err.message}`);
+                        console.error(`[DB-Init] Schema sync failed (Attempt ${attempt}): ${err.message}`);
                         // Retry sync if it fails
                         setTimeout(() => initializeDatabase(attempt + 1), 10000);
                     } else {
-                        console.log('[DB-Init] Schema is up to date.');
+                        console.log('🚀 [DB-Init] SCHEMA SYNCED SUCCESSFULLY! All tables created.');
                         setupAdmin();
                     }
                 });
@@ -131,7 +135,7 @@ async function initializeDatabase(attempt = 1) {
             setupAdmin();
         }
     } catch (error: any) {
-        console.error(`❌ [DB-Init] Failed on attempt ${attempt}:`, error.message);
+        console.error(`❌ [DB-Init] Connection failed on attempt ${attempt}:`, error.message);
         // Retry connection every 5 seconds
         setTimeout(() => initializeDatabase(attempt + 1), 5000);
     }
