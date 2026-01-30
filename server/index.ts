@@ -1760,6 +1760,7 @@ app.get('/api/analytics/summary', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
+        console.log(`[Login] Attempt for: ${email}`);
         const user = await prisma.user.findUnique({
             where: { email }
         });
@@ -1788,11 +1789,22 @@ app.post('/api/login', async (req, res) => {
         await createLog(user.id, 'LOGIN', 'AUTH', `Usuário ${user.name} acessou o sistema`);
 
         res.json(userWithoutPassword);
-    } catch (error) {
+    } catch (error: any) {
         console.error('FATAL LOGIN ERROR:', error);
+
+        let detailMsg = 'Erro desconhecido';
+        if (error instanceof Error) {
+            detailMsg = error.message;
+            if ((error as any).code) {
+                detailMsg += ` (Código: ${(error as any).code})`;
+            }
+        } else {
+            detailMsg = String(error);
+        }
+
         res.status(500).json({
-            error: 'Erro ao fazer login',
-            details: error instanceof Error ? error.message : String(error)
+            error: 'Erro no Servidor de Banco de Dados',
+            details: detailMsg
         });
     }
 });

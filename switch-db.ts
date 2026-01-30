@@ -9,9 +9,9 @@ const envPath = path.join(__dirname, '.env');
 const target = process.argv[2];
 
 if (target === 'sqlite') {
-    // Switch to SQLite
+    console.log('🔄 Switching to SQLite...');
     let schema = fs.readFileSync(schemaPath, 'utf8');
-    schema = schema.replace(/provider = "postgresql"/, 'provider = "sqlite"');
+    schema = schema.replace(/provider = "postgresql"/g, 'provider = "sqlite"');
     fs.writeFileSync(schemaPath, schema);
 
     let env = fs.readFileSync(envPath, 'utf8');
@@ -21,12 +21,12 @@ if (target === 'sqlite') {
     }
     console.log('✅ Switched to SQLite (Local)');
 } else if (target === 'postgres') {
-    // Switch to Postgres
+    console.log('🔄 Switching to PostgreSQL...');
     let schema = fs.readFileSync(schemaPath, 'utf8');
-    schema = schema.replace(/provider = "sqlite"/, 'provider = "postgresql"');
+    schema = schema.replace(/provider = "sqlite"/g, 'provider = "postgresql"');
     fs.writeFileSync(schemaPath, schema);
-
-    console.log('✅ Switched to PostgreSQL (Production/Render)');
+    console.log('✅ Switched to PostgreSQL (Production)');
 } else {
-    console.log('Usage: npx tsx switch-db.ts [sqlite|postgres]');
+    console.error('❌ Error: Usage: npx tsx switch-db.ts [sqlite|postgres]');
+    process.exit(1);
 }

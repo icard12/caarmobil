@@ -46,7 +46,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 }, 1500);
             } else {
                 const errorData = await response.json();
-                setError(errorData.error || 'Credenciais inválidas');
+                const errorMessage = errorData.error || 'Credenciais inválidas';
+                const detailMessage = errorData.details ? `: ${errorData.details}` : '';
+                setError(errorMessage + detailMessage);
             }
         } catch (error) {
             console.error('Login error:', error);
