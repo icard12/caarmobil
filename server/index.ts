@@ -102,38 +102,43 @@ const httpServer = createServer(app);
 const server = httpServer.listen(Number(PORT), HOST, () => {
     console.log(`🚀 SERVER IS LIVE! (Fast Boot)`);
     console.log(`📍 URL: http://${HOST}:${PORT}`);
-
-    // Background tasks after boot
-    setTimeout(async () => {
-        try {
-            await prisma.$queryRaw`SELECT 1`;
-            console.log('✅ Database connected (post-boot)');
-
-            // Background sync logic (moved from original listen callback)
-            if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER) {
-                const runDbPush = (attempt = 1) => {
-                    console.log(`[Database] Background schema sync (Attempt ${attempt})...`);
-                    import('child_process').then(({ exec }) => {
-                        exec('npx prisma db push --accept-data-loss', (err, stdout, stderr) => {
-                            if (stdout) console.log(`[Database Sync Output]: ${stdout}`);
-                            if (stderr) console.error(`[Database Sync Stderr]: ${stderr}`);
-                            if (err) {
-                                console.error(`[Database] Background sync error (Attempt ${attempt}):`, err.message);
-                                if (attempt < 3) setTimeout(() => runDbPush(attempt + 1), 10000);
-                            } else {
-                                console.log('[Database] Background sync complete.');
-                                setupAdmin();
-                            }
-                        });
-                    }).catch(e => console.error('[Database] Failed to import child_process'));
-                };
-                runDbPush();
-            }
-        } catch (e) {
-            console.error('❌ Database health check failed (post-boot):', e);
-        }
-    }, 1000);
 });
+
+// Resilient Background Initializer
+async function initializeDatabase(attempt = 1) {
+    console.log(`[DB-Init] Connection attempt ${attempt}...`);
+    try {
+        await prisma.$connect();
+        await prisma.$queryRaw`SELECT 1`;
+        console.log('✅ Database connected successfully!');
+
+        // Now that we are connected, ensure tables and admin exist
+        if (isRailway || isRender) {
+            console.log('[DB-Init] Verifying schema...');
+            import('child_process').then(({ exec }) => {
+                exec('npx prisma db push --accept-data-loss', (err, stdout, stderr) => {
+                    if (err) {
+                        console.error(`[DB-Init] Schema sync failed: ${err.message}`);
+                        // Retry sync if it fails
+                        setTimeout(() => initializeDatabase(attempt + 1), 10000);
+                    } else {
+                        console.log('[DB-Init] Schema is up to date.');
+                        setupAdmin();
+                    }
+                });
+            }).catch(e => console.error('[DB-Init] Failed to load child_process'));
+        } else {
+            setupAdmin();
+        }
+    } catch (error: any) {
+        console.error(`❌ [DB-Init] Failed on attempt ${attempt}:`, error.message);
+        // Retry connection every 5 seconds
+        setTimeout(() => initializeDatabase(attempt + 1), 5000);
+    }
+}
+
+// Start the persistent initialization
+initializeDatabase();
 
 const io = new Server(httpServer, {
     cors: {
