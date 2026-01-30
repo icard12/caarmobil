@@ -15,41 +15,50 @@ if (!(process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production'))
 
 let databaseUrl = process.env.DATABASE_URL;
 
-// 1. Reconstruct URL if missing (Common in Railway/Render)
+// 1. Search for ANY environment variable that looks like a Postgres URL
+// (Sometimes Railway/Render uses keys like POSTGRES_URL, DATABASE_PUBLIC_URL, etc.)
+if (!databaseUrl) {
+    for (const [key, value] of Object.entries(process.env)) {
+        if (value && (value.startsWith('postgres://') || value.startsWith('postgresql://'))) {
+            console.log(`[DB-Config] Auto-discovered database URL in variable: ${key}`);
+            databaseUrl = value;
+            break;
+        }
+    }
+}
+
+// 2. Reconstruct URL from parts if still missing
 if (!databaseUrl && process.env.PGHOST) {
     databaseUrl = `postgresql://${process.env.PGUSER || 'postgres'}:${process.env.PGPASSWORD}@${process.env.PGHOST}:${process.env.PGPORT || '5432'}/${process.env.PGDATABASE}`;
 }
 
-// 2. CRITICAL: Fix Protocol for Prisma
-// Prisma STRICTLY requires "postgresql://" or "postgres://". Some providers return "postgres://" which is fine, but others might leave it generic.
+// 3. CRITICAL: Fix Protocol for Prisma
 if (databaseUrl && (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production')) {
-    // If it starts with neither, assume it needs the prefix or fix it
     if (!databaseUrl.startsWith('postgres://') && !databaseUrl.startsWith('postgresql://')) {
-        // Sometimes URL might come as "usuario:senha@host..." without protocol
         databaseUrl = 'postgresql://' + databaseUrl;
     }
 }
 
-// 3. Force SSL for Production (Ensures handshakes work)
+// 4. Force SSL for Production
 if (databaseUrl && !databaseUrl.includes('sslmode=') && (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production')) {
     databaseUrl += databaseUrl.includes('?') ? '&sslmode=no-verify' : '?sslmode=no-verify';
 }
 
-// 4. IMPORTANT: Update global env so background tasks (like db push) use the SAME fixed URL
+// 5. Fallback for Production (Prevent Crash) but Log Loudly
+if (!databaseUrl && (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production')) {
+    console.error('❌ [DB-Config] CRITICAL: No DATABASE_URL found! Please add PostgreSQL in Railway.');
+    console.warn('[DB-Config] Using dummy URL to keep server alive (DB features will fail).');
+    databaseUrl = "postgresql://user:pass@localhost:5432/db_not_configured";
+}
+
+// 6. Update global env
 if (databaseUrl) {
     process.env.DATABASE_URL = databaseUrl;
-    console.log(`[DB-Config] Database URL configured with protocol: ${databaseUrl.split(':')[0]}`);
+    // Log masked URL for debugging
+    const masked = databaseUrl.replace(/:([^:@]+)@/, ':****@');
+    console.log(`[DB-Config] Final Connection String: ${masked}`);
 } else {
-    console.warn('[DB-Config] Warning: DATABASE_URL is undefined.');
-
-    // CRITICAL FIX: If we are in production/railway, the schema is likely set to "postgresql".
-    // Providing a "file:..." URL here will cause a crash (Protocol Error).
-    // We provide a dummy postgres URL to satisfy the Prisma constructor.
-    // The connection will fail later, but the app will START and logs will show the issue.
-    if (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
-        console.warn('[DB-Config] Using dummy PostgreSQL URL to prevent startup crash. Please configure DATABASE_URL in Railway.');
-        databaseUrl = "postgresql://user:pass@localhost:5432/db_not_configured";
-    }
+    console.warn('[DB-Config] Warning: DATABASE_URL is undefined (Using SQLite local fallback if not in prod).');
 }
 
 export const prisma = new PrismaClient({
