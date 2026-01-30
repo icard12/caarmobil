@@ -41,11 +41,21 @@ if (databaseUrl) {
     console.log(`[DB-Config] Database URL configured with protocol: ${databaseUrl.split(':')[0]}`);
 } else {
     console.warn('[DB-Config] Warning: DATABASE_URL is undefined.');
+
+    // CRITICAL FIX: If we are in production/railway, the schema is likely set to "postgresql".
+    // Providing a "file:..." URL here will cause a crash (Protocol Error).
+    // We provide a dummy postgres URL to satisfy the Prisma constructor.
+    // The connection will fail later, but the app will START and logs will show the issue.
+    if (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
+        console.warn('[DB-Config] Using dummy PostgreSQL URL to prevent startup crash. Please configure DATABASE_URL in Railway.');
+        databaseUrl = "postgresql://user:pass@localhost:5432/db_not_configured";
+    }
 }
 
 export const prisma = new PrismaClient({
     datasources: {
         db: {
+            // Check if we have a valid URL logic, otherwise default to sqlite local
             url: databaseUrl || "file:./dev.db"
         }
     }
